@@ -1,0 +1,7 @@
+# Environment variables (all .env files except .env.example)
+.env
+.env.local
+.env.*.local
+!.env.example
+.venv
+./.venv
