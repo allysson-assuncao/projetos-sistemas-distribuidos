@@ -2,18 +2,18 @@
 Atividade Prática 2 — Sistemas Distribuídos
 API REST: Gerenciador de Projetos e Tarefas
 Servidor Flask com armazenamento em memória.
+
+Uso:
+    python server.py
 """
 
 import time
 from datetime import datetime
-# pyrefly: ignore [missing-import]
 from flask import Flask, request, jsonify, abort
 
 app = Flask(__name__)
 
-# ─────────────────────────────────────────────────
 # ARMAZENAMENTO EM MEMÓRIA
-# ─────────────────────────────────────────────────
 projetos: dict[int, dict] = {}
 tarefas: dict[int, dict] = {}
 _projeto_id_counter = 0
@@ -32,16 +32,14 @@ def _nova_tarefa_id() -> int:
     return _tarefa_id_counter
 
 
-def _agora() -> str:
+def _data_agora() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-# ─────────────────────────────────────────────────
-# VALIDADORES
-# ─────────────────────────────────────────────────
+# VALIDAÇÕES
 STATUS_PROJETO_VALIDOS = {"ativo", "arquivado"}
 STATUS_TAREFA_VALIDOS = {"pendente", "concluida"}
-PRIORIDADE_VALIDAS = {"baixa", "media", "alta"}
+PRIORIDADES_VALIDAS = {"baixa", "media", "alta"}
 
 
 def _validar_projeto(dados: dict, criacao: bool = True) -> list[str]:
@@ -67,15 +65,12 @@ def _validar_tarefa(dados: dict, criacao: bool = True) -> list[str]:
             erros.append("Campo 'descricao' é obrigatório.")
     if "status" in dados and dados["status"] not in STATUS_TAREFA_VALIDOS:
         erros.append(f"Campo 'status' deve ser um de: {STATUS_TAREFA_VALIDOS}.")
-    if "prioridade" in dados and dados["prioridade"] not in PRIORIDADE_VALIDAS:
-        erros.append(f"Campo 'prioridade' deve ser um de: {PRIORIDADE_VALIDAS}.")
+    if "prioridade" in dados and dados["prioridade"] not in PRIORIDADES_VALIDAS:
+        erros.append(f"Campo 'prioridade' deve ser um de: {PRIORIDADES_VALIDAS}.")
     return erros
 
 
-# ─────────────────────────────────────────────────
 # ROTAS — PROJETOS
-# ─────────────────────────────────────────────────
-
 @app.route("/projetos", methods=["GET"])
 def listar_projetos():
     """
@@ -108,7 +103,7 @@ def criar_projeto():
         "nome": dados["nome"],
         "descricao": dados["descricao"],
         "status": dados.get("status", "ativo"),
-        "criado_em": _agora(),
+        "criado_em": _data_agora(),
     }
     # Valida status explícito se fornecido
     if projeto["status"] not in STATUS_PROJETO_VALIDOS:
@@ -188,10 +183,7 @@ def deletar_projeto(pid: int):
     return "", 204
 
 
-# ─────────────────────────────────────────────────
-# ROTAS — TAREFAS (aninhadas em projetos)
-# ─────────────────────────────────────────────────
-
+# ROTAS — TAREFAS
 @app.route("/projetos/<int:pid>/tarefas", methods=["GET"])
 def listar_tarefas(pid: int):
     """
@@ -233,7 +225,7 @@ def criar_tarefa(pid: int):
         "status": dados.get("status", "pendente"),
         "prioridade": dados.get("prioridade", "media"),
         "projeto_id": pid,
-        "criado_em": _agora(),
+        "criado_em": _data_agora(),
     }
     tarefas[tid] = tarefa
     response = jsonify(tarefa)
@@ -286,25 +278,19 @@ def deletar_tarefa(tid: int):
     return "", 204
 
 
-# ─────────────────────────────────────────────────
 # ROTA ESPECIAL — TIMEOUT
-# ─────────────────────────────────────────────────
-
 @app.route("/slow", methods=["GET"])
 def slow():
     """
     Endpoint lento para teste de timeout do cliente.
-    Dorme 10 segundos antes de responder.
+    Aguarda 10 segundos antes de responder.
     O cliente deve configurar timeout < 10s para disparar o erro.
     """
     time.sleep(10)
     return jsonify({"mensagem": "Resposta demorada entregue com sucesso!"}), 200
 
 
-# ─────────────────────────────────────────────────
 # MAIN
-# ─────────────────────────────────────────────────
-
 if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("  API REST — Gerenciador de Projetos e Tarefas")

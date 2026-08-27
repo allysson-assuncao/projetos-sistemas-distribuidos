@@ -2,7 +2,7 @@
 Atividade Prática 2 — Sistemas Distribuídos
 Cliente de Testes da API REST: Gerenciador de Projetos e Tarefas
 
-Executa uma bateria de testes sequenciais contra o servidor Flask.
+Executa um conjunto de testes sequenciais no servidor Flask.
 O servidor deve estar rodando em http://127.0.0.1:5000 antes de iniciar.
 
 Uso:
@@ -47,10 +47,7 @@ def erro_conexao(metodo: str, url: str, exc: Exception):
     print(f"  {VERMELHO}Erro de conexão/timeout: {type(exc).__name__}: {exc}{RESET}")
 
 
-# ─────────────────────────────────────────────────
 # CENÁRIOS DE TESTE
-# ─────────────────────────────────────────────────
-
 def cenario_1_listar_projetos_vazio():
     """GET /projetos — lista vazia inicial."""
     secao("CENÁRIO 1: Listar projetos (lista vazia inicial)")
@@ -131,7 +128,6 @@ def cenario_7_atualizar_projeto(pid: int):
 
 
 # ── ERROS DE APLICAÇÃO ─────────────────────────────────────────────────────────
-
 def cenario_8_erro_projeto_nao_encontrado():
     """ERRO 1: GET /projetos/9999 — projeto inexistente (404)."""
     secao("CENÁRIO 8 [ERRO DE APLICAÇÃO 1]: Buscar projeto inexistente → 404")
@@ -158,7 +154,6 @@ def cenario_10_erro_delete_projeto_com_tarefas(pid: int):
 
 
 # ── TIMEOUT ────────────────────────────────────────────────────────────────────
-
 def cenario_11_timeout():
     """TIMEOUT: GET /slow com timeout=3s — servidor demora 10s → Timeout."""
     secao("CENÁRIO 11 [FALHA DE CONECTIVIDADE]: Requisição com timeout → requests.Timeout")
@@ -173,7 +168,6 @@ def cenario_11_timeout():
 
 
 # ── LIMPEZA FINAL ──────────────────────────────────────────────────────────────
-
 def cenario_12_deletar_tarefa(tid: int):
     """DELETE /tarefas/<id> — remove uma tarefa."""
     secao(f"CENÁRIO 12: Deletar tarefa id={tid}")
@@ -193,10 +187,7 @@ def cenario_13_deletar_projeto_apos_remover_tarefas(pid: int):
     print(f"  Status obtido: {r.status_code} | Esperado: 204")
 
 
-# ─────────────────────────────────────────────────
 # EXECUÇÃO PRINCIPAL
-# ─────────────────────────────────────────────────
-
 def main():
     print("\n" + "=" * 60)
     print("  CLIENTE DE TESTES — API REST Projetos e Tarefas")
@@ -205,7 +196,7 @@ def main():
     print(f"\n  Base URL : {BASE_URL}")
     print(f"  Timeout padrão: {TIMEOUT_PADRAO}s\n")
 
-    # ── CENÁRIOS DE SUCESSO ──────────────────────────────────
+    # CENÁRIOS DE SUCESSO
     cenario_1_listar_projetos_vazio()
 
     projeto_ids = cenario_2_criar_projetos()
@@ -223,17 +214,17 @@ def main():
 
     cenario_7_atualizar_projeto(pid_secundario)
 
-    # ── CENÁRIOS DE ERRO ─────────────────────────────────────
+    # CENÁRIOS DE ERRO
     cenario_8_erro_projeto_nao_encontrado()
 
     cenario_9_erro_dados_invalidos()
 
     cenario_10_erro_delete_projeto_com_tarefas(pid_principal)
 
-    # ── CENÁRIO DE TIMEOUT ───────────────────────────────────
+    # CENÁRIO DE TIMEOUT
     cenario_11_timeout()
 
-    # ── LIMPEZA / DEMONSTRAÇÃO DO DELETE ─────────────────────
+    # LIMPEZA / DEMONSTRAÇÃO DO DELETE
     # Remove todas as tarefas do projeto principal para então deletá-lo
     for tid in tarefa_ids:
         cenario_12_deletar_tarefa(tid)
