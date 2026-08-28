@@ -78,29 +78,58 @@ python client.py
 
 ---
 
-## Modelos de Dados
+## Modelos de Dados e Formatos (JSON)
+
+A comunicação com a API (envio e recebimento de dados) é feita inteiramente utilizando o formato **JSON**. Internamente, o Flask converte automaticamente esses payloads JSON em Dicionários Python (`dict`), nos quais aplicamos os valores padrão de forma segura utilizando o método `dados.get("chave", "valor_padrao")`.
 
 ### Projeto
+
+- **Campos Obrigatórios (POST):** `nome`, `descricao`
+- **Campos Opcionais e Padrões:** Se `status` não for enviado na criação, a API assume `"ativo"` por padrão.
+
+**Exemplo de Payload (POST - Request):**
+```json
+{
+  "nome": "Sistema de Vendas",
+  "descricao": "Projeto de e-commerce completo"
+}
+```
+
+**Exemplo de Resposta (201 Created - Response):**
 ```json
 {
   "id": 1,
   "nome": "Sistema de Vendas",
-  "descricao": "Projeto de e-commerce",
-  "status": "ativo | arquivado",
+  "descricao": "Projeto de e-commerce completo",
+  "status": "ativo",
   "criado_em": "2025-08-24T20:00:00"
 }
 ```
 
 ### Tarefa
+
+- **Campos Obrigatórios (POST):** `titulo`, `descricao`
+- **Campos Opcionais e Padrões:** Se não fornecidos na criação, `status` assume `"pendente"` e `prioridade` assume `"media"`.
+
+**Exemplo de Payload (POST - Request):**
+```json
+{
+  "titulo": "Modelagem do banco",
+  "descricao": "Definir esquema ER",
+  "prioridade": "alta"
+}
+```
+
+**Exemplo de Resposta (201 Created - Response):**
 ```json
 {
   "id": 1,
   "titulo": "Modelagem do banco",
   "descricao": "Definir esquema ER",
-  "status": "pendente | concluida",
-  "prioridade": "baixa | media | alta",
+  "status": "pendente",
+  "prioridade": "alta",
   "projeto_id": 1,
-  "criado_em": "2025-08-24T20:00:00"
+  "criado_em": "2025-08-24T20:10:00"
 }
 ```
 
@@ -175,3 +204,10 @@ A solução recomendada é o **Optimistic Locking com ETag**:
 6. O cliente que recebeu 412 deve recarregar o recurso e tentar novamente com a nova versão.
 
 Essa abordagem não requer locks no servidor e é escalável para ambientes distribuídos. Nesta atividade, a versão simplificada (sem ETag) é usada por simplicidade, mas a extensão é direta.
+
+### 5. Decisão Arquitetural: Uso do Flask (vs FastAPI)
+
+Enquanto o laboratório de referência da apostila utilizou **FastAPI** com **Pydantic**, esta API foi intencionalmente implementada utilizando **Flask "puro"**. A justificativa técnica para essa escolha inclui:
+
+- **Controle Manual e Transparência:** O FastAPI abstrai a validação e conversão de dados quase que "magicamente" através das classes do Pydantic (`BaseModel`). Ao utilizar o Flask, todo o processo de extração do JSON (`request.get_json()`), acesso aos dados utilizando dicionários nativos (`dict`) e a verificação manual da integridade dos campos foi implementado explicitamente (ex: funções de validação locais). Isso demonstra um entendimento profundo de como as estruturas de dados e a semântica HTTP operam na prática na linguagem Python, sem depender de camadas opacas de framework.
+- **Simplicidade de Dependências:** O Flask requer uma infraestrutura base menor, e a utilização de bibliotecas nativas como `datetime` e `json` simplificou o escopo do projeto, atingindo todos os objetivos e requisitos obrigatórios da atividade sem a necessidade de adicionar múltiplos schemas ou classes de validação externa.

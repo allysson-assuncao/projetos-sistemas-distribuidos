@@ -102,6 +102,7 @@ def criar_projeto():
         "id": pid,
         "nome": dados["nome"],
         "descricao": dados["descricao"],
+        # Considera o status padrão 'ativo' se não for fornecido
         "status": dados.get("status", "ativo"),
         "criado_em": _data_agora(),
     }
