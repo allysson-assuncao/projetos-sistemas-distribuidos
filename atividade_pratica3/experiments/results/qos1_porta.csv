@@ -1,0 +1,6 @@
+seq,timestamp_pub,dado,qos,topic,mid,retained
+0,2026-09-01T16:56:44.272961+00:00,Fechada,1,casa/frente/porta,1,True
+1,2026-09-01T16:56:47.287966+00:00,Aberta,1,casa/frente/porta,2,True
+2,2026-09-01T16:56:50.303302+00:00,Aberta,1,casa/frente/porta,3,True
+3,2026-09-01T16:56:53.317227+00:00,Aberta,1,casa/frente/porta,4,True
+4,2026-09-01T16:56:56.330779+00:00,Aberta,1,casa/frente/porta,5,True

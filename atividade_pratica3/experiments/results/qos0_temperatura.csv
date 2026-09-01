@@ -1,0 +1,6 @@
+seq,timestamp_pub,dado,qos,topic,mid
+0,2026-09-01T16:56:36.374891+00:00,22.1,0,casa/sala/temperatura,1
+1,2026-09-01T16:56:36.883437+00:00,24.83,0,casa/sala/temperatura,2
+2,2026-09-01T16:56:37.398141+00:00,23.71,0,casa/sala/temperatura,3
+3,2026-09-01T16:56:37.911600+00:00,22.56,0,casa/sala/temperatura,4
+4,2026-09-01T16:56:38.424918+00:00,22.95,0,casa/sala/temperatura,5
