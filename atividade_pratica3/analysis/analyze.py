@@ -14,6 +14,7 @@ Uso:
 import argparse
 import os
 from pathlib import Path
+from typing import Optional
 
 import matplotlib
 matplotlib.use("Agg")  # backend sem GUI para Windows
@@ -34,7 +35,7 @@ SCENARIO_MAP = {
 
 # ─── Funções auxiliares ───────────────────────────────────────────────────────
 
-def load_csv(path: Path) -> pd.DataFrame | None:
+def load_csv(path: Path) -> Optional[pd.DataFrame]:
     try:
         df = pd.read_csv(path)
         return df
