@@ -83,6 +83,7 @@ def on_message(client, userdata, msg):
     state["csv_writer"].writerow([
         seq, ts_chegada, msg.topic, dado, msg.qos, msg.retain
     ])
+    state["csv_file"].flush()
 
 
 def on_disconnect(client, userdata, flags, reason_code, properties):

@@ -73,6 +73,7 @@ def on_message(client, userdata, msg):
         state["csv_writer"].writerow([
             seq, ts_chegada, dado, msg.topic, msg.qos, True, "LWT_RECEBIDO"
         ])
+        state["csv_file"].flush()
         return
 
     # ── Detecção de perda por número de sequência ────────────────────────────
@@ -97,6 +98,7 @@ def on_message(client, userdata, msg):
     state["csv_writer"].writerow([
         seq, ts_chegada, dado, msg.topic, msg.qos, msg.retain, observacao
     ])
+    state["csv_file"].flush()
 
 
 def on_disconnect(client, userdata, flags, reason_code, properties):
