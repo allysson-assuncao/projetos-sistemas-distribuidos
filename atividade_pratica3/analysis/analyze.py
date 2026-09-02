@@ -12,6 +12,9 @@ Uso:
 """
 
 import argparse
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+
 import os
 from pathlib import Path
 from typing import Optional
