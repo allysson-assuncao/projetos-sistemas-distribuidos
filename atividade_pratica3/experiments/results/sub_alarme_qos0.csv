@@ -1,0 +1,3 @@
+seq,timestamp_chegada,dado,topic,qos,retained,observacao
+4,2026-09-02T14:02:05.826649+00:00,Fechada,casa/frente/porta,0,True,PERDA_SEQ_0_a_3
+-1,2026-09-02T14:02:05.869023+00:00,OFFLINE,casa/status/sensores,1,True,LWT_RECEBIDO
