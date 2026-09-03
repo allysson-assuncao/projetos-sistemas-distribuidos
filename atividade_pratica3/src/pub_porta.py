@@ -27,8 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import config
 
 
-# ─── Callbacks ────────────────────────────────────────────────────────────────
-
+# Callbacks
 def on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
         print(f"[PORTA] Conectado ao broker {config.BROKER_HOST}:{config.BROKER_PORT}")
@@ -42,8 +41,7 @@ def on_publish(client, userdata, mid, reason_code, properties):
     print(f"[PORTA] ACK recebido para MID={mid}")
 
 
-# ─── Função principal ──────────────────────────────────────────────────────────
-
+# Função principal
 def main():
     parser = argparse.ArgumentParser(description="Publisher: Sensor de Porta com LWT e Retained")
     parser.add_argument("--qos",      type=int, default=1, choices=[0, 1, 2])
@@ -53,7 +51,7 @@ def main():
                         help="Simula falha abrupta após metade das mensagens (para testar LWT)")
     args = parser.parse_args()
 
-    # ── CSV ──────────────────────────────────────────────────────────────────
+    # CSV
     results_dir = Path(__file__).parent.parent / "experiments" / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     csv_path   = results_dir / f"qos{args.qos}_porta.csv"
@@ -61,7 +59,7 @@ def main():
     csv_writer = csv.writer(csv_file)
     csv_writer.writerow(["seq", "timestamp_pub", "dado", "qos", "topic", "mid", "retained"])
 
-    # ── Configuração MQTT com LWT ─────────────────────────────────────────────
+    # Configuração MQTT com LWT
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"pub_porta_qos{args.qos}"
@@ -81,7 +79,7 @@ def main():
     client.loop_start()
     time.sleep(0.5)
 
-    # ── Loop de publicação ────────────────────────────────────────────────────
+    # Loop de publicação
     estados   = ["Aberta", "Fechada"]
     estado    = "Fechada"
     seq       = 0

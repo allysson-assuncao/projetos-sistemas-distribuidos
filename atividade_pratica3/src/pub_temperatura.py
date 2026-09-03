@@ -22,8 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import config
 
 
-# ─── Callbacks ────────────────────────────────────────────────────────────────
-
+# Callbacks
 def on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
         print(f"[TEMP] Conectado ao broker {config.BROKER_HOST}:{config.BROKER_PORT}")
@@ -36,8 +35,7 @@ def on_publish(client, userdata, mid, reason_code, properties):
     print(f"[TEMP] ACK recebido para MID={mid}")
 
 
-# ─── Função principal ──────────────────────────────────────────────────────────
-
+# Função principal
 def main():
     parser = argparse.ArgumentParser(description="Publisher: Sensor de Temperatura")
     parser.add_argument("--qos",      type=int, default=0, choices=[0, 1, 2],
@@ -48,7 +46,7 @@ def main():
                         help="Intervalo em segundos entre publicações (default: 1.0)")
     args = parser.parse_args()
 
-    # ── Configuração do CSV de saída ─────────────────────────────────────────
+    # Configuração do CSV de saída
     results_dir = Path(__file__).parent.parent / "experiments" / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     csv_path = results_dir / f"qos{args.qos}_temperatura.csv"
@@ -57,7 +55,7 @@ def main():
     csv_writer = csv.writer(csv_file)
     csv_writer.writerow(["seq", "timestamp_pub", "dado", "qos", "topic", "mid"])
 
-    # ── Configuração do cliente MQTT ─────────────────────────────────────────
+    # Configuração do cliente MQTT
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"pub_temperatura_qos{args.qos}"
@@ -70,7 +68,7 @@ def main():
 
     time.sleep(0.5)  # aguarda conexão estabilizar
 
-    # ── Loop de publicação ───────────────────────────────────────────────────
+    # Loop de publicação
     temperatura_base = 24.0
     seq = 0
 

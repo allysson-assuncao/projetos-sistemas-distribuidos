@@ -25,9 +25,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import pandas as pd
 
-
-# ─── Configuração ─────────────────────────────────────────────────────────────
-
+# Configuração
 SCENARIO_MAP = {
     "sub_alarme_qos0.csv": {"qos": 0, "semantica": "Fire and Forget",  "topico": "temperatura"},
     "sub_alarme_qos1.csv": {"qos": 1, "semantica": "At Least Once",    "topico": "temperatura"},
@@ -36,8 +34,7 @@ SCENARIO_MAP = {
 }
 
 
-# ─── Funções auxiliares ───────────────────────────────────────────────────────
-
+# Funções auxiliares
 def load_csv(path: Path) -> Optional[pd.DataFrame]:
     try:
         df = pd.read_csv(path)
@@ -164,8 +161,7 @@ def gera_grafico_taxa(resultados: list[dict], output_path: Path):
     print(f"  [ANALISE] ✅ Gráfico de taxa gerado: {output_path}")
 
 
-# ─── Função principal ──────────────────────────────────────────────────────────
-
+# Função principal
 def main():
     parser = argparse.ArgumentParser(description="Análise dos resultados MQTT")
     parser.add_argument("--results", type=str,

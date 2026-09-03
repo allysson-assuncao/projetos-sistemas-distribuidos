@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import config
 
 
-# ─── Estado compartilhado entre callbacks ─────────────────────────────────────
+# Estado compartilhado entre callbacks
 state = {
     "csv_writer": None,
     "csv_file":   None,
@@ -35,8 +35,7 @@ state = {
 }
 
 
-# ─── Callbacks ────────────────────────────────────────────────────────────────
-
+# Callbacks
 def on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
         print(f"[ALARME] Conectado ao broker.")
@@ -66,7 +65,7 @@ def on_message(client, userdata, msg):
     dado = payload.get("dado", "?")
     id_  = payload.get("id", "?")
 
-    # ── Detecção de LWT (sensor offline) ────────────────────────────────────
+    # Detecção de LWT (sensor offline)
     if msg.topic == config.TOPIC_STATUS and dado == "OFFLINE":
         print(f"\n[ALARME] 🚨 ALERTA CRÍTICO: Sensor '{id_}' ficou OFFLINE (LWT recebido)!")
         print(f"[ALARME] 🚨 Verifique o sensor imediatamente!\n")
@@ -76,7 +75,7 @@ def on_message(client, userdata, msg):
         state["csv_file"].flush()
         return
 
-    # ── Detecção de perda por número de sequência ────────────────────────────
+    # Detecção de perda por número de sequência
     observacao = "OK"
     if msg.topic == config.TOPIC_PORTA and seq != -1:
         if seq > state["seq_esperado"]:
@@ -91,7 +90,7 @@ def on_message(client, userdata, msg):
         # Atualiza o esperado apenas se avançou na sequência (evita retroceder com duplicatas)
         state["seq_esperado"] = max(state["seq_esperado"], seq + 1)
 
-    # ── Alerta de porta ──────────────────────────────────────────────────────
+    # Alerta de porta
     icone = "🔓" if dado == "Aberta" else "🔒"
     print(f"[ALARME] {icone} seq={seq:03d} | Porta={dado:8s} | QoS={msg.qos} | {ts_chegada}")
 
@@ -105,8 +104,7 @@ def on_disconnect(client, userdata, flags, reason_code, properties):
     print(f"[ALARME] Desconectado. Código: {reason_code}")
 
 
-# ─── Função principal ──────────────────────────────────────────────────────────
-
+# Função principal
 def main():
     parser = argparse.ArgumentParser(description="Subscriber: Central de Alarme")
     parser.add_argument("--qos",     type=int, default=1, choices=[0, 1, 2])
@@ -118,7 +116,7 @@ def main():
 
     state["qos"] = args.qos
 
-    # ── CSV ──────────────────────────────────────────────────────────────────
+    # CSV
     results_dir = Path(__file__).parent.parent / "experiments" / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     csv_name   = args.output or f"sub_alarme_qos{args.qos}.csv"
@@ -130,7 +128,7 @@ def main():
     state["csv_file"]   = csv_file
     state["csv_writer"] = csv_writer
 
-    # ── Cliente MQTT ─────────────────────────────────────────────────────────
+    # Cliente MQTT
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"sub_alarme_qos{args.qos}"

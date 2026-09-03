@@ -31,8 +31,7 @@ state = {
 }
 
 
-# ─── Callbacks ────────────────────────────────────────────────────────────────
-
+# Callbacks
 def on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
         print(f"[DASH] Conectado ao broker.")
@@ -69,7 +68,7 @@ def on_message(client, userdata, msg):
     unidade   = payload.get("unidade", "")
     retained_flag = "📌 RETAINED" if msg.retain else ""
 
-    # ── Display formatado por tópico ─────────────────────────────────────────
+    # Display formatado por tópico
     if msg.topic == config.TOPIC_TEMPERATURA:
         print(f"[DASH] 🌡️  Temperatura: {dado}{unidade:3s} | seq={seq:03d} | QoS={msg.qos} {retained_flag}")
     elif msg.topic == config.TOPIC_PORTA:
@@ -90,8 +89,7 @@ def on_disconnect(client, userdata, flags, reason_code, properties):
     print(f"\n[DASH] Desconectado. Código: {reason_code}")
 
 
-# ─── Função principal ──────────────────────────────────────────────────────────
-
+# Função principal
 def main():
     parser = argparse.ArgumentParser(description="Subscriber: Dashboard Global")
     parser.add_argument("--qos",     type=int, default=0, choices=[0, 1, 2])
@@ -100,7 +98,7 @@ def main():
 
     state["qos"] = args.qos
 
-    # ── CSV ──────────────────────────────────────────────────────────────────
+    # CSV
     results_dir = Path(__file__).parent.parent / "experiments" / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     csv_path   = results_dir / f"sub_dashboard_qos{args.qos}.csv"
@@ -111,7 +109,7 @@ def main():
     state["csv_file"]   = csv_file
     state["csv_writer"] = csv_writer
 
-    # ── Cliente ───────────────────────────────────────────────────────────────
+    # Cliente
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"sub_dashboard_qos{args.qos}"
