@@ -145,9 +145,9 @@ docker compose down
 *Resposta:* 
 - **Foi Suficiente?** Os testes foram feitos com os 3 níveis para comparação, apenas o último tendo confiança total, com maior sobrecarga da rede. Para esse contexto o QoS 1 já seria aceitável.
 
-- **QoS 0 (Fire and Forget):** Apresentou a menor latência e overhead de rede, pois não há handshake, mas possibilita a perda de pacotes caso a rede esteja instável ou o broker desconecte, já que não há confirmação de entrega.
-- **QoS 1 (At Least Once):** Mitigou as perdas garantindo a chegada das mensagens através da resposta de reconhecimento (`PUBACK`), aumentando moderadamente a latência. No entanto, introduziu o fenômeno de **duplicatas** na recepção.
-- **QoS 2 (Exactly Once):** Apresentou o maior tempo de latência e processamento devido ao rigoroso *handshake* de 4 vias (PUBREC, PUBREL, PUBCOMP), assegurando entrega confiável, sem perdas e filtrando duplicatas direto na camada de transporte, à custa de maior consumo de rede.
+- **QoS 0 (Fire and Forget):** Apresenta a menor latência e overhead de rede, pois não há handshake, mas possibilita a perda de pacotes caso a rede esteja instável ou o broker desconecte, já que não há confirmação de entrega.
+- **QoS 1 (At Least Once):** Mitiga as perdas garantindo a chegada das mensagens através da resposta de reconhecimento (`PUBACK`), aumentando moderadamente a latência. No entanto, introduziu o fenômeno de **duplicatas** na recepção.
+- **QoS 2 (Exactly Once):** Apresenta o maior tempo de latência e processamento devido ao rigoroso *handshake* de 4 vias (PUBREC, PUBREL, PUBCOMP), assegurando entrega confiável, sem perdas e filtrando duplicatas direto na camada de transporte, à custa de maior consumo de rede.
 
 **3. Duplicatas:** Como o sistema identifica mensagem duplicada?
 *Resposta:* O recebimento de duplicatas ocorreu no **QoS 1**. Isso ocorre e é identificado quando o emissor mantém a mensagem armazenada até que o pacote de confirmação (`PUBACK`) retorne. Se houver lentidão na rede ou o `PUBACK` se perder, o emissor esgota o timeout e retransmite a mesma mensagem com a flag DUP ativa. O subscriber, não sabendo do problema, processa novamente a mesma mensagem. A injeção da chave sequencial (`seq`) no payload JSON em nosso projeto nos permitiu identificar essa duplicata em nível de aplicação e evitar dados corrompidos.

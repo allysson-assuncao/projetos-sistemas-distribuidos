@@ -12,6 +12,7 @@ import argparse
 import os
 import subprocess
 import sys
+sys.stdout.reconfigure(encoding='utf-8')
 import time
 from pathlib import Path
 
@@ -149,7 +150,7 @@ def main():
             [PYTHON, str(SRC_DIR / "sub_alarme.py"),    "--qos", "1",
              "--output", "sub_alarme_lwt.csv", "--timeout", "300"],
             [PYTHON, str(SRC_DIR / "sub_dashboard.py"), "--qos", "1",
-             "--timeout", "300"],
+             "--output", "sub_dashboard_lwt.csv", "--timeout", "300"],
         ],
         duration = int((args.count // 2) * args.interval) + 20
     )
@@ -172,7 +173,7 @@ def main():
     print("  [ORQ] Subscriber tardio conectando — deve receber estado retido imediatamente:")
     tardio = subprocess.Popen([
         PYTHON, str(SRC_DIR / "sub_dashboard.py"),
-        "--qos", "1", "--timeout", "5"
+        "--qos", "1", "--output", "sub_dashboard_tardio.csv", "--timeout", "5"
     ], stdout=sys.stdout, stderr=sys.stderr)
     tardio.wait()
     print("  [ORQ] Cenário 'Retained' concluído.\n")

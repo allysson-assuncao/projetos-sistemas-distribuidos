@@ -1,6 +1,6 @@
 seq,timestamp_pub,dado,qos,topic,mid,retained
-0,2026-09-02T14:06:13.662080+00:00,Aberta,1,casa/frente/porta,1,True
-1,2026-09-02T14:06:14.175528+00:00,Aberta,1,casa/frente/porta,2,True
-2,2026-09-02T14:06:14.676425+00:00,Aberta,1,casa/frente/porta,3,True
-3,2026-09-02T14:06:15.178270+00:00,Aberta,1,casa/frente/porta,4,True
-4,2026-09-02T14:06:15.690452+00:00,Aberta,1,casa/frente/porta,5,True
+0,2026-09-04T13:56:30.633679+00:00,Aberta,1,casa/frente/porta,1,True
+1,2026-09-04T13:56:31.143542+00:00,Aberta,1,casa/frente/porta,2,True
+2,2026-09-04T13:56:31.645522+00:00,Aberta,1,casa/frente/porta,3,True
+3,2026-09-04T13:56:32.159679+00:00,Aberta,1,casa/frente/porta,4,True
+4,2026-09-04T13:56:32.673939+00:00,Aberta,1,casa/frente/porta,5,True

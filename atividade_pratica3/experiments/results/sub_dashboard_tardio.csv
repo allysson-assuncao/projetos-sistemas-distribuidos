@@ -1,0 +1,3 @@
+seq,timestamp_chegada,topic,dado,qos,retained
+4,2026-09-04T13:56:36.977913+00:00,casa/frente/porta,Aberta,1,True
+-1,2026-09-04T13:56:36.977913+00:00,casa/status/sensores,OFFLINE,1,True

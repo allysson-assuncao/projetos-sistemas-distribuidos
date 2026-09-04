@@ -94,6 +94,8 @@ def main():
     parser = argparse.ArgumentParser(description="Subscriber: Dashboard Global")
     parser.add_argument("--qos",     type=int, default=0, choices=[0, 1, 2])
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument("--output",  type=str, default=None,
+                        help="Nome do arquivo CSV de saída (opcional)")
     args = parser.parse_args()
 
     state["qos"] = args.qos
@@ -101,7 +103,8 @@ def main():
     # CSV
     results_dir = Path(__file__).parent.parent / "experiments" / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
-    csv_path   = results_dir / f"sub_dashboard_qos{args.qos}.csv"
+    csv_name   = args.output or f"sub_dashboard_qos{args.qos}.csv"
+    csv_path   = results_dir / csv_name
     csv_file   = open(csv_path, "w", newline="", encoding="utf-8")
     csv_writer = csv.writer(csv_file)
     csv_writer.writerow(["seq", "timestamp_chegada", "topic", "dado", "qos", "retained"])

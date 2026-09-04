@@ -27,10 +27,10 @@ import pandas as pd
 
 # Configuração
 SCENARIO_MAP = {
-    "sub_alarme_qos0.csv": {"qos": 0, "semantica": "Fire and Forget",  "topico": "temperatura"},
-    "sub_alarme_qos1.csv": {"qos": 1, "semantica": "At Least Once",    "topico": "temperatura"},
-    "sub_alarme_qos2.csv": {"qos": 2, "semantica": "Exactly Once",     "topico": "temperatura"},
-    "sub_alarme_lwt.csv":  {"qos": 1, "semantica": "Falha c/ LWT",     "topico": "porta"},
+    "sub_dashboard_qos0.csv": {"qos": 0, "semantica": "Fire and Forget",  "topico": "casa/sala/temperatura"},
+    "sub_dashboard_qos1.csv": {"qos": 1, "semantica": "At Least Once",    "topico": "casa/sala/temperatura"},
+    "sub_dashboard_qos2.csv": {"qos": 2, "semantica": "Exactly Once",     "topico": "casa/sala/temperatura"},
+    "sub_alarme_lwt.csv":     {"qos": 1, "semantica": "Falha c/ LWT",     "topico": "casa/frente/porta", "is_lwt": True},
 }
 
 
@@ -50,18 +50,26 @@ def load_csv(path: Path) -> Optional[pd.DataFrame]:
         return None
 
 
-def analisa_cenario(df: pd.DataFrame, qos: int, enviadas: int = 60) -> dict:
+def analisa_cenario(df: pd.DataFrame, topico: str, qos: int, enviadas: int = 60) -> dict:
     """Calcula métricas de um cenário a partir do DataFrame do subscriber."""
     if df is None or df.empty:
         return {}
 
-    recebidas  = len(df)
-    duplicatas = recebidas - df["seq"].nunique() if "seq" in df.columns else 0
+    # LWTs no dataframe todo
     lwt_events = len(df[df["observacao"] == "LWT_RECEBIDO"]) if "observacao" in df.columns else 0
 
+    # Filtra pelo tópico do experimento
+    if "topic" in df.columns:
+        df_target = df[df["topic"] == topico]
+    else:
+        df_target = df
+
+    recebidas  = len(df_target)
+    duplicatas = recebidas - df_target["seq"].nunique() if "seq" in df_target.columns else 0
+
     # Perdas estimadas via sequência
-    if "seq" in df.columns:
-        seqs_validos = df[df["seq"] >= 0]["seq"]
+    if "seq" in df_target.columns:
+        seqs_validos = df_target[df_target["seq"] >= 0]["seq"]
         if not seqs_validos.empty:
             seq_max = seqs_validos.max()
             perdas  = max(0, seq_max + 1 - len(seqs_validos.unique()))
@@ -182,7 +190,9 @@ def main():
     for filename, meta in SCENARIO_MAP.items():
         csv_path = results_dir / filename
         df       = load_csv(csv_path)
-        metricas = analisa_cenario(df, qos=meta["qos"], enviadas=args.enviadas)
+        
+        qtde_enviadas = args.enviadas // 2 if meta.get("is_lwt") else args.enviadas
+        metricas = analisa_cenario(df, topico=meta["topico"], qos=meta["qos"], enviadas=qtde_enviadas)
         if metricas:
             metricas["semantica"] = meta["semantica"]
             metricas["topico"]    = meta["topico"]
