@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package carteira;
+
+// ─────────────────────────────────────────────
+// Request Messages
+// ─────────────────────────────────────────────
+
+// Used to identify an account (balance query)
+message ContaRequest {
+  string conta_id = 1;
+}
+
+// Used for deposit and withdrawal operations
+message TransacaoRequest {
+  string conta_id  = 1;
+  double valor     = 2;
+  string descricao = 3;  // optional descriptive field
+  string moeda     = 4;  // NEW — contract evolution
+}
+
+// Used to create a new account
+message CriarContaRequest {
+  string conta_id      = 1;
+  string nome_titular  = 2;
+  double saldo_inicial = 3;
+}
+
+// Used for account-to-account transfers
+message TransferirRequest {
+  string conta_origem  = 1;
+  string conta_destino = 2;
+  double valor         = 3;
+}
+
+// ─────────────────────────────────────────────
+// Response Messages
+// ─────────────────────────────────────────────
+
+// Standard response for transaction and account-creation operations
+message TransacaoResponse {
+  string conta_id    = 1;
+  double saldo_atual = 2;
+  string mensagem    = 3;
+}
+
+// Response for balance queries
+message SaldoResponse {
+  string conta_id     = 1;
+  string nome_titular = 2;
+  double saldo_atual  = 3;
+}
+
+// ─────────────────────────────────────────────
+// Service Definition
+// ─────────────────────────────────────────────
+
+service CarteiraService {
+  // Creates a new account with an initial balance
+  rpc CriarConta   (CriarContaRequest) returns (TransacaoResponse);
+
+  // Queries the balance and data of an existing account
+  rpc ConsultarSaldo (ContaRequest)    returns (SaldoResponse);
+
+  // Deposits a value into an account
+  rpc Depositar    (TransacaoRequest)  returns (TransacaoResponse);
+
+  // Withdraws a value from an account
+  rpc Sacar        (TransacaoRequest)  returns (TransacaoResponse);
+
+  // Transfers a value between two accounts
+  rpc Transferir   (TransferirRequest) returns (TransacaoResponse);
+}
