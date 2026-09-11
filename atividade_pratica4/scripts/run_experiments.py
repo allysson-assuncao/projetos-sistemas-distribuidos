@@ -30,10 +30,7 @@ from carteira.client import get_stub, consultar_saldo, depositar, sacar
 HOST = "localhost"
 PORT = 50051
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Utilities
-# ─────────────────────────────────────────────────────────────────────────────
-
 results = []  # list of dicts for the final table
 
 
@@ -60,10 +57,7 @@ def measure_call(method_fn, *args, **kwargs):
         return exc.code().name, latency_ms
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Experiment 1 — Unavailability
-# ─────────────────────────────────────────────────────────────────────────────
-
 def experiment_unavailability():
     """
     Connect to the server when it is NOT running and observe the error.
@@ -87,10 +81,7 @@ def experiment_unavailability():
     print("\nExpected result: UNAVAILABLE")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Experiment 2 — Deadline
-# ─────────────────────────────────────────────────────────────────────────────
-
 def experiment_deadline():
     """
     Test deadline behavior against a slow server.
@@ -120,10 +111,7 @@ def experiment_deadline():
                  "Server delay=3s | expected OK")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Experiment 3 — Concurrency
-# ─────────────────────────────────────────────────────────────────────────────
-
 def _concurrent_client_worker(client_id: int, thread_results: list):
     """Function executed by each concurrent client thread."""
     stub, channel = get_stub(HOST, PORT)
@@ -183,10 +171,7 @@ def experiment_concurrency(num_clients: int = 20):
              f"Total time: {total_time_ms:.1f}ms")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Experiment 4 — Contract Evolution
-# ─────────────────────────────────────────────────────────────────────────────
-
 def experiment_contract_evolution():
     """
     Demonstrate that adding a NEW field to .proto is backward-compatible.
@@ -233,10 +218,7 @@ def experiment_contract_evolution():
             print("  → Run gerar_stubs.ps1 after adding the field to .proto")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Results table
-# ─────────────────────────────────────────────────────────────────────────────
-
 def print_results_table():
     """Print the results table formatted for inclusion in the report."""
     print("\n" + "=" * 80)
@@ -249,10 +231,7 @@ def print_results_table():
     print("=" * 130)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Entry point
-# ─────────────────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
     import argparse
 

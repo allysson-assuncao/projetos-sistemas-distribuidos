@@ -43,10 +43,7 @@ class AccountStore:
         if seed:
             self._seed()
 
-    # ------------------------------------------------------------------
     # Internal helpers
-    # ------------------------------------------------------------------
-
     def _seed(self):
         """Populate the store with initial accounts."""
         for entry in self.SEED_ACCOUNTS:
@@ -61,10 +58,7 @@ class AccountStore:
         with self._registry_lock:
             return self._registry.get(conta_id)
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
-
     def create(self, conta_id: str, nome_titular: str, saldo_inicial: float) -> float:
         """
         Create a new account.

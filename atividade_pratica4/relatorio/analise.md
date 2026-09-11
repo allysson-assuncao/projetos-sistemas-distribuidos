@@ -1,7 +1,7 @@
-# Report — Atividade Prática 4: gRPC Digital Wallet Service
-**Course:** Sistemas Distribuídos  
-**Topic:** Digital Wallet  
-**Technology:** gRPC + Protocol Buffers (Python)
+# Relatório — Atividade Prática 4: Serviço de Carteira Digital gRPC
+**Disciplina:** Sistemas Distribuídos  
+**Tópico:** Carteira Digital  
+**Tecnologia:** gRPC + Protocol Buffers (Python)
 
 ---
 
@@ -13,15 +13,15 @@ Por outro lado, contrastando com o **MQTT (AP3)**, que é um protocolo assíncro
 
 ---
 
-## 2. Experiment Results Table
+## 2. Tabela de Resultados dos Experimentos
 
-| # | Experiment             | RPC Method                   | Observed gRPC Status     | Latency (ms)   | Notes                                                      |
-|---|------------------------|------------------------------|--------------------------|----------------|------------------------------------------------------------|
-| 1 | Unavailability         | ConsultarSaldo               | `UNAVAILABLE`            | 2300.4         | Server stopped. Immediate error after connection timeout |
-| 2a| Deadline (short)       | Depositar (timeout=1s)       | `DEADLINE_EXCEEDED`      | 1030.4         | Server delay=3s. Client cancels after 1s                 |
-| 2b| Deadline (sufficient)  | Depositar (timeout=5s)       | `OK`                     | 3004.2         | Server delay=3s. Completed within timeout                |
-| 3 | Concurrency (20 cli.)  | Depositar (×20 simultaneous) | 20/20 `OK`               | 6.6            | Workers=20. All processed without errors                 |
-| 4 | Contract Evolution     | Depositar (field `moeda`)    | `OK`                     | 4.7            | New field ignored by old server — backward-compatible    |
+| # | Experimento             | Método RPC                   | Status gRPC Observado    | Latência (ms)  | Notas                                                      |
+|---|-------------------------|------------------------------|--------------------------|----------------|------------------------------------------------------------|
+| 1 | Indisponibilidade       | ConsultarSaldo               | `UNAVAILABLE`            | 2300.4         | Servidor parado. Erro imediato após timeout de conexão     |
+| 2a| Deadline (curto)        | Depositar (timeout=1s)       | `DEADLINE_EXCEEDED`      | 1030.4         | Delay no servidor=3s. Cliente cancela após 1s              |
+| 2b| Deadline (suficiente)   | Depositar (timeout=5s)       | `OK`                     | 3004.2         | Delay no servidor=3s. Concluído dentro do timeout          |
+| 3 | Concorrência (20 cli.)  | Depositar (×20 simultâneos)  | 20/20 `OK`               | 6.6            | Workers=20. Todos processados sem erros                    |
+| 4 | Evolução de Contrato    | Depositar (campo `moeda`)    | `OK`                     | 4.7            | Novo campo ignorado pelo servidor antigo — backward-compatible |
 
 ---
 

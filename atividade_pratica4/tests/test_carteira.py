@@ -30,10 +30,7 @@ from carteira.store import AccountStore
 from carteira.server import CarteiraServicer
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Base Fixture
-# ─────────────────────────────────────────────────────────────────────────────
-
 class GrpcTestCase(unittest.TestCase):
     """
     Base class that spins up an isolated gRPC server for each test class.
@@ -74,10 +71,7 @@ class GrpcTestCase(unittest.TestCase):
         cls.server.stop(grace=0)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # CriarConta Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
 class TestCriarConta(GrpcTestCase):
 
     def test_criar_conta_success(self):
@@ -118,10 +112,7 @@ class TestCriarConta(GrpcTestCase):
         self.assertEqual(cm.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # ConsultarSaldo Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
 class TestConsultarSaldo(GrpcTestCase):
 
     def test_consultar_saldo_existing_account(self):
@@ -153,10 +144,7 @@ class TestConsultarSaldo(GrpcTestCase):
         self.assertEqual(cm.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Depositar Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
 class TestDepositar(GrpcTestCase):
 
     def test_depositar_success(self):
@@ -199,10 +187,7 @@ class TestDepositar(GrpcTestCase):
         self.assertEqual(cm.exception.code(), grpc.StatusCode.NOT_FOUND)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Sacar Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
 class TestSacar(GrpcTestCase):
 
     def test_sacar_success(self):
@@ -236,10 +221,7 @@ class TestSacar(GrpcTestCase):
         self.assertEqual(cm.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Transferir Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
 class TestTransferir(GrpcTestCase):
 
     def test_transferir_success(self):
@@ -277,10 +259,7 @@ class TestTransferir(GrpcTestCase):
         self.assertEqual(cm.exception.code(), grpc.StatusCode.FAILED_PRECONDITION)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Deadline Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
 class TestDeadline(GrpcTestCase):
     """
     Tests client-side deadline enforcement.

@@ -21,10 +21,7 @@ import carteira_pb2_grpc
 from store import AccountStore
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Servicer Implementation
-# ─────────────────────────────────────────────────────────────────────────────
-
 class CarteiraServicer(carteira_pb2_grpc.CarteiraServiceServicer):
     """
     Implements all RPC methods defined in carteira.proto.
@@ -77,9 +74,7 @@ class CarteiraServicer(carteira_pb2_grpc.CarteiraServiceServicer):
             mensagem=f"Account '{conta_id}' successfully created for {nome_titular}.",
         )
 
-    # ------------------------------------------------------------------
     # ConsultarSaldo
-    # ------------------------------------------------------------------
     def ConsultarSaldo(self, request, context):
         conta_id = request.conta_id.strip()
 
@@ -98,9 +93,7 @@ class CarteiraServicer(carteira_pb2_grpc.CarteiraServiceServicer):
             saldo_atual=data["saldo_atual"],
         )
 
-    # ------------------------------------------------------------------
     # Depositar
-    # ------------------------------------------------------------------
     def Depositar(self, request, context):
         self._apply_delay()
 
@@ -127,9 +120,7 @@ class CarteiraServicer(carteira_pb2_grpc.CarteiraServiceServicer):
             mensagem=f"Deposit of R$ {valor:.2f} completed successfully.",
         )
 
-    # ------------------------------------------------------------------
     # Sacar
-    # ------------------------------------------------------------------
     def Sacar(self, request, context):
         self._apply_delay()
 
@@ -158,9 +149,7 @@ class CarteiraServicer(carteira_pb2_grpc.CarteiraServiceServicer):
             mensagem=f"Withdrawal of R$ {valor:.2f} completed successfully.",
         )
 
-    # ------------------------------------------------------------------
     # Transferir
-    # ------------------------------------------------------------------
     def Transferir(self, request, context):
         self._apply_delay()
 
@@ -197,10 +186,7 @@ class CarteiraServicer(carteira_pb2_grpc.CarteiraServiceServicer):
         )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Server Bootstrap
-# ─────────────────────────────────────────────────────────────────────────────
-
 def serve(port: int = 50051, max_workers: int = 10, delay_seconds: float = 0.0):
     """
     Start the gRPC server.
