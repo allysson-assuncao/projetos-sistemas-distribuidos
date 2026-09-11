@@ -5,7 +5,7 @@ import warnings
 
 import carteira_pb2 as carteira__pb2
 
-GRPC_GENERATED_VERSION = '1.66.1'
+GRPC_GENERATED_VERSION = '1.83.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,14 +18,14 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in carteira_pb2_grpc.py depends on'
+        + ' but the generated code in carteira_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
 
 
-class CarteiraServiceStub(object):
+class CarteiraServiceStub:
     """─────────────────────────────────────────────
     Service Definition
     ─────────────────────────────────────────────
@@ -65,7 +65,7 @@ class CarteiraServiceStub(object):
                 _registered_method=True)
 
 
-class CarteiraServiceServicer(object):
+class CarteiraServiceServicer:
     """─────────────────────────────────────────────
     Service Definition
     ─────────────────────────────────────────────
@@ -143,7 +143,7 @@ def add_CarteiraServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class CarteiraService(object):
+class CarteiraService:
     """─────────────────────────────────────────────
     Service Definition
     ─────────────────────────────────────────────
