@@ -19,6 +19,7 @@ import json
 import uuid
 from unittest.mock import MagicMock, patch
 
+# pyrefly: ignore [missing-import]
 import pytest
 
 from estufa.middleware import Middleware, ErroQuorum

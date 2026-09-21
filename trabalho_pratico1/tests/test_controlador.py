@@ -23,6 +23,7 @@ import threading
 import time
 from unittest.mock import MagicMock
 
+# pyrefly: ignore [missing-import]
 import pytest
 
 # Import the module and class under test
