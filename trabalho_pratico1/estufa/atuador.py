@@ -17,6 +17,7 @@ Usage:
 import json
 import time
 import collections
+# pyrefly: ignore [missing-import]
 import paho.mqtt.client as mqtt
 from estufa import config
 

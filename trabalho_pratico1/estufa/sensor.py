@@ -16,6 +16,7 @@ import argparse
 import json
 import random
 import time
+# pyrefly: ignore [missing-import]
 import paho.mqtt.client as mqtt
 from estufa import config
 
