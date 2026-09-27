@@ -1,0 +1,14 @@
+# Ambiente virtual
+.venv/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Outputs de runtime (gerados pelo experiment_runner.py)
+ap5.log
+
+# Arquivos temporários
+*.tmp
+nohup.out
