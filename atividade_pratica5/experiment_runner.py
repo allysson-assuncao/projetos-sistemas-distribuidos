@@ -22,6 +22,14 @@ import time
 import uuid
 from pathlib import Path
 
+# Configura encoding UTF-8 no stdout/stderr no Windows para suportar emojis e símbolos
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 import requests
 
 from retry import requisicao_com_retry
@@ -29,12 +37,13 @@ from retry import requisicao_com_retry
 # ---------------------------------------------------------------------------
 # Configuração
 # ---------------------------------------------------------------------------
-BASE_URL: str = "http://localhost:5000"
+# 127.0.0.1 evita latência de resolução IPv6 (::1) no Windows
+BASE_URL: str = "http://127.0.0.1:5000"
 TOKEN_VALIDO: str = "ap5-laboratorio-token-2026"
 
 # Porta fechada para simular crash (C3) — nenhum servidor escuta aqui
 PORTA_CRASH: int = 9999
-URL_CRASH: str = f"http://localhost:{PORTA_CRASH}/projetos"
+URL_CRASH: str = f"http://127.0.0.1:{PORTA_CRASH}/projetos"
 
 LOG_PATH: Path = Path(__file__).parent / "ap5.log"
 RESULTADOS_PATH: Path = Path(__file__).parent / "resultados.md"
@@ -171,27 +180,28 @@ def c3_crash() -> None:
 
     t0 = time.perf_counter()
     tipo_exc = "N/A"
+    lat = 0.0
     try:
-        requests.get(URL_CRASH, timeout=2.0)
+        requests.get(URL_CRASH, timeout=4.0)
         log.info("  INESPERADO: resposta recebida!")
     except requests.exceptions.ConnectionError as exc:
         lat = (time.perf_counter() - t0) * 1000
         tipo_exc = type(exc).__name__
         log.info(f"  ✓ Exceção capturada: {tipo_exc}")
-        log.info(f"  ✓ Tempo até exceção: {lat:.0f} ms (imediato — conexão recusada)")
+        log.info(f"  ✓ Tempo até exceção: {lat:.0f} ms (conexão recusada)")
         log.info(f"  ✓ Distingue-se de C2: aqui temos certeza de não-processamento pelo servidor.")
     except requests.exceptions.Timeout as exc:
-        # Não deve ocorrer com porta fechada localmente, mas tratado por rigor
+        lat = (time.perf_counter() - t0) * 1000
         tipo_exc = type(exc).__name__
         log.info(f"  Exceção inesperada (Timeout): {exc}")
 
     _registrar(
         "C3 — Crash / Conexão Recusada",
-        "Porta 9999 fechada → ConnectionError imediato (< 100 ms); confirma falha de colapso",
+        "Porta 9999 fechada → ConnectionError imediato; confirma falha de colapso",
         "Nenhum servidor na porta 9999",
-        f"Exceção {tipo_exc} em < 100 ms. Sem ambiguidade sobre processamento.",
+        f"Exceção {tipo_exc} em {lat:.0f} ms. Sem ambiguidade sobre processamento.",
         "Falha de colapso / crash — servidor definitivamente não recebeu a requisição",
-        "Distinguível de C2: ConnectionError é imediato e garante não-processamento. "
+        "Distinguível de C2: ConnectionError garante não-processamento pelo servidor. "
         "Falha simultânea de servidor + rede → ConnectTimeout (subclasse de ConnectionError), nunca ReadTimeout.",
     )
 

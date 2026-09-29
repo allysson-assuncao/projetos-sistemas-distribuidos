@@ -17,11 +17,21 @@ Uso:
     python server_lab.py --port 5000   # porta customizada
 """
 
+from __future__ import annotations
+
 import os
 import random
 import sys
 import time
 from datetime import datetime
+
+# Configura encoding UTF-8 no stdout/stderr no Windows
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 from flask import Flask, jsonify, request
 
@@ -191,7 +201,7 @@ if __name__ == "__main__":
     print("=" * 55)
     print("  AP5 — Servidor de Laboratório de Falhas e Segurança")
     print("=" * 55)
-    print(f"  URL base  : http://localhost:{port}")
+    print(f"  URL base  : http://127.0.0.1:{port} (ou http://localhost:{port})")
     print(f"  Token env : AP5_TOKEN (fallback: ap5-laboratorio-token-2026)")
     print()
     print("  Endpoints disponíveis:")

@@ -15,6 +15,8 @@ Uso:
         ...
 """
 
+from __future__ import annotations
+
 import os
 from functools import wraps
 from flask import request, jsonify

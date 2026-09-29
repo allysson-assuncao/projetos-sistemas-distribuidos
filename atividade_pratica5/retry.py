@@ -16,9 +16,20 @@ Política de retry:
   - NÃO FARÁ retry: HTTPError 4xx (erros determinísticos de cliente)
 """
 
+from __future__ import annotations
+
 import random
+import sys
 import time
 from typing import Any
+
+# Configura encoding UTF-8 no stdout/stderr no Windows
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 import requests
 from requests.exceptions import ConnectionError, Timeout, HTTPError

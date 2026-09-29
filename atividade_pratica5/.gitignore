@@ -6,9 +6,9 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Outputs de runtime (gerados pelo experiment_runner.py)
-ap5.log
+# Outputs de runtime (ap5.log e resultados.md sao entregaveis da atividade)
 
-# Arquivos temporários
+# Arquivos temporários e pacotes de entrega
 *.tmp
 nohup.out
+*.zip

@@ -22,11 +22,11 @@ atividade_pratica5/
 ├── experiment_runner.py   # Orquestra C1–C7 e gera os outputs
 ├── retry.py               # Módulo reutilizável de retry com backoff + jitter
 ├── auth.py                # Decorator @requer_token (Bearer Token)
-├── requirements.txt       # Dependências Python
-├── implementation_plan.md # Plano de implementação aprovado
+├── requirements.txt       # Dependências Python (flask, requests)
+├── README.md              # Documentação completa, análise de segurança e respostas
 │
-├── ap5.log                # Gerado automaticamente ao executar o runner
-└── resultados.md          # Tabela markdown gerada automaticamente
+├── ap5.log                # Log estruturado gerado pelo runner (evidência de execução)
+└── resultados.md          # Tabela comparativa gerada automaticamente
 ```
 
 ---
@@ -59,7 +59,7 @@ pip install -r requirements.txt
 python server_lab.py
 ```
 
-O servidor estará disponível em `http://localhost:5000`.  
+O servidor estará disponível em `http://127.0.0.1:5000` (ou `http://localhost:5000`).  
 Para usar outra porta: `AP5_PORT=5001 python server_lab.py`
 
 Para usar um token customizado (recomendado para demonstração real):
@@ -76,12 +76,12 @@ source .venv/bin/activate
 python experiment_runner.py
 ```
 
-O runner executa os 7 cenários em sequência, exibindo logs no console e gravando simultaneamente em `ap5.log`.  
+O runner conecta por padrão em `http://127.0.0.1:5000`, executa os 7 cenários em sequência, exibe logs no console e grava simultaneamente em `ap5.log`.  
 Ao final, gera `resultados.md` com a tabela completa.
 
 ```bash
 # Para servidor em porta customizada:
-python experiment_runner.py --url http://localhost:5001
+python experiment_runner.py --url http://127.0.0.1:5001
 ```
 
 ### Passo 3 — Verificar evidências
@@ -281,3 +281,36 @@ A consequência prática para resiliência:
 | C5 | POST duplicado | Efeito adverso de retry | ❌ Piora (multiplica efeitos) |
 | C6 | 401 Unauthorized | Falha de segurança / autorização | ❌ Não (erro determinístico 4xx) |
 | C7 | Idempotency-Key | Mitigação de não-idempotência | ✅ Mitiga problema de C5 |
+
+---
+
+## Conformidade com os Entregáveis do Enunciado
+
+| Entregável do Enunciado | Arquivo / Seção Correspondente | Status |
+|---|---|:---:|
+| **Código/configuração de injeção de falhas** | [`server_lab.py`](server_lab.py), [`retry.py`](retry.py), [`auth.py`](auth.py), [`experiment_runner.py`](experiment_runner.py) | ✅ Concluído |
+| **Tabela com hipótese, falha, observação, classificação e conclusão** | [`resultados.md`](resultados.md) (gerado automaticamente) | ✅ Concluído |
+| **Logs ou métricas** | [`ap5.log`](ap5.log) (estruturado por tentativa com latência e status) | ✅ Concluído |
+| **Breve análise de segurança** | Seção [Análise de Segurança](#análise-de-segurança) deste README | ✅ Concluído |
+| **Demonstração de um cenário selecionado** | Orquestração reproduzível via [`experiment_runner.py`](experiment_runner.py) | ✅ Concluído |
+| **Respostas conceituais (5 questões)** | Seção [Questões para Análise](#questões-para-análise) deste README | ✅ Concluído |
+
+---
+
+## Empacotamento para Submissão (.zip)
+
+Para submissão da atividade, os seguintes arquivos essenciais compõem a entrega:
+
+```
+atividade_pratica5/
+├── server_lab.py          # Servidor Flask com injeção de falhas
+├── experiment_runner.py   # Orquestrador dos experimentos
+├── retry.py               # Algoritmo de retry com backoff exponencial + jitter
+├── auth.py                # Decorator Bearer Token
+├── requirements.txt       # Dependências
+├── README.md              # Relatório técnico completo e respostas às 5 questões
+├── resultados.md          # Tabela markdown de resultados dos testes
+└── ap5.log                # Log de evidências da execução limpa
+```
+
+> **Nota:** Pastas como `.venv/`, `__pycache__/` e artefatos de apoio interno (`artifacts/`) não precisam ser incluídos no `.zip` final de entrega.

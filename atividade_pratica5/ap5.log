@@ -1,0 +1,124 @@
+2026-09-29 13:33:31 | ╔══════════════════════════════════════════════════════╗
+2026-09-29 13:33:31 | ║   AP5 — Runner de Experimentos: Falhas e Segurança   ║
+2026-09-29 13:33:31 | ╚══════════════════════════════════════════════════════╝
+2026-09-29 13:33:31 | Servidor-alvo : http://127.0.0.1:5000
+2026-09-29 13:33:31 | Log           : C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\atividade_pratica5\ap5.log
+2026-09-29 13:33:31 | Resultados    : C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\atividade_pratica5\resultados.md
+2026-09-29 13:33:31 | 
+Verificando conectividade com o servidor...
+2026-09-29 13:33:31 |   ✓ Servidor acessível. Iniciando experimentos.
+
+2026-09-29 13:33:31 | 
+==============================================================
+  C1 — Baseline (Referência sem Falha)
+==============================================================
+2026-09-29 13:33:31 | Hipótese: servidor responde 200 em < 50 ms com 100% de sucesso.
+2026-09-29 13:33:31 |   Req 1/5: status=200 | latência=16.2 ms
+2026-09-29 13:33:31 |   Req 2/5: status=200 | latência=15.2 ms
+2026-09-29 13:33:31 |   Req 3/5: status=200 | latência=15.1 ms
+2026-09-29 13:33:31 |   Req 4/5: status=200 | latência=2.7 ms
+2026-09-29 13:33:31 |   Req 5/5: status=200 | latência=2.4 ms
+2026-09-29 13:33:31 |   → Latência média: 10.3 ms | Taxa de sucesso: 5/5 (100%)
+2026-09-29 13:33:31 | 
+==============================================================
+  C2 — Timeout (atraso superior ao timeout do cliente)
+==============================================================
+2026-09-29 13:33:31 | Hipótese: servidor dorme 5 s; cliente com timeout=1 s lança Timeout.
+2026-09-29 13:33:31 | Inferência: Timeout NÃO prova falha do servidor — servidor pode ter processado.
+2026-09-29 13:33:33 |   ✓ Exceção capturada: ReadTimeout
+2026-09-29 13:33:33 |   ✓ Tempo até exceção: 1038 ms (≈ timeout configurado de 1000 ms)
+2026-09-29 13:33:33 |   ✓ Status HTTP: desconhecido do lado do cliente
+2026-09-29 13:33:33 |   ✓ O servidor continuou dormindo 5 s após o cliente desistir.
+2026-09-29 13:33:33 | 
+==============================================================
+  C3 — Crash / Conexão Recusada (servidor parado)
+==============================================================
+2026-09-29 13:33:33 | Hipótese: requisição para http://127.0.0.1:9999/projetos (porta fechada) gera ConnectionError imediato.
+2026-09-29 13:33:33 | Demonstra (Q5): falha de servidor + falha de rede → ConnectionError, NÃO Timeout.
+2026-09-29 13:33:33 |   Fundamento: Timeout (ReadTimeout) ocorre APÓS a conexão TCP ser estabelecida.
+2026-09-29 13:33:33 |   Se o servidor caiu, o TCP handshake falha imediatamente → ConnectionError.
+2026-09-29 13:33:33 |   Mesmo que a rede seja lenta, o resultado é ConnectTimeout ⊂ ConnectionError.
+2026-09-29 13:33:35 |   ✓ Exceção capturada: ConnectionError
+2026-09-29 13:33:35 |   ✓ Tempo até exceção: 2043 ms (conexão recusada)
+2026-09-29 13:33:35 |   ✓ Distingue-se de C2: aqui temos certeza de não-processamento pelo servidor.
+2026-09-29 13:33:35 | 
+==============================================================
+  C4 — Erro 503 com Retry + Backoff Exponencial + Jitter
+==============================================================
+2026-09-29 13:33:35 | Hipótese: prob_falha=0.7 → 503 frequente; retry (≤4) deve recuperar na maioria dos casos.
+2026-09-29 13:33:35 | Fórmula: espera = (2^n) * 0.2 + random(0, 0.1)  [n = índice da tentativa]
+2026-09-29 13:33:35 | 
+  --- Execução 1/5 ---
+2026-09-29 13:33:35 |     tentativa=1 | status=503 | latência=77.08 ms | resultado=FALHA | tipo_erro=HTTPError
+2026-09-29 13:33:35 |     tentativa=2 | status=503 | latência=80.2 ms | resultado=FALHA | tipo_erro=HTTPError
+2026-09-29 13:33:35 |     tentativa=3 | status=200 | latência=78.04 ms | resultado=SUCESSO
+2026-09-29 13:33:35 |   → ✓ SUCESSO em 3 tentativa(s)
+2026-09-29 13:33:35 | 
+  --- Execução 2/5 ---
+2026-09-29 13:33:36 |     tentativa=1 | status=503 | latência=76.99 ms | resultado=FALHA | tipo_erro=HTTPError
+2026-09-29 13:33:36 |     tentativa=2 | status=503 | latência=62.94 ms | resultado=FALHA | tipo_erro=HTTPError
+2026-09-29 13:33:36 |     tentativa=3 | status=200 | latência=79.18 ms | resultado=SUCESSO
+2026-09-29 13:33:36 |   → ✓ SUCESSO em 3 tentativa(s)
+2026-09-29 13:33:36 | 
+  --- Execução 3/5 ---
+2026-09-29 13:33:36 |     tentativa=1 | status=200 | latência=77.07 ms | resultado=SUCESSO
+2026-09-29 13:33:36 |   → ✓ SUCESSO em 1 tentativa(s)
+2026-09-29 13:33:36 | 
+  --- Execução 4/5 ---
+2026-09-29 13:33:38 |     tentativa=1 | status=503 | latência=77.14 ms | resultado=FALHA | tipo_erro=HTTPError
+2026-09-29 13:33:38 |     tentativa=2 | status=503 | latência=64.29 ms | resultado=FALHA | tipo_erro=HTTPError
+2026-09-29 13:33:38 |     tentativa=3 | status=503 | latência=80.13 ms | resultado=FALHA | tipo_erro=HTTPError
+2026-09-29 13:33:38 |     tentativa=4 | status=503 | latência=62.41 ms | resultado=FALHA | tipo_erro=HTTPError
+2026-09-29 13:33:38 |   → ✗ FALHOU em 4 tentativa(s)
+2026-09-29 13:33:38 | 
+  --- Execução 5/5 ---
+2026-09-29 13:33:38 |     tentativa=1 | status=200 | latência=77.3 ms | resultado=SUCESSO
+2026-09-29 13:33:38 |   → ✓ SUCESSO em 1 tentativa(s)
+2026-09-29 13:33:38 | 
+  Resumo C4: 4/5 execuções recuperaram | Média de tentativas: 2.4
+2026-09-29 13:33:38 | 
+==============================================================
+  C5 — Duplicação por Retry em POST Não Idempotente
+==============================================================
+2026-09-29 13:33:38 | Hipótese: Retry em POST /projetos cria recursos duplicados (mesmo nome, IDs distintos).
+2026-09-29 13:33:38 | Simula o cenário em que: servidor processou, mas cliente não recebeu confirmação.
+2026-09-29 13:33:38 |   Tentativa 1: status=201 | id=1 | nome='Projeto Duplicado AP5'
+2026-09-29 13:33:38 |   Tentativa 2: status=201 | id=2 | nome='Projeto Duplicado AP5'
+2026-09-29 13:33:38 |   Tentativa 3: status=201 | id=3 | nome='Projeto Duplicado AP5'
+2026-09-29 13:33:38 | 
+  → IDs criados: [1, 2, 3] (3 recursos distintos)
+2026-09-29 13:33:38 |   → Nomes: ['Projeto Duplicado AP5', 'Projeto Duplicado AP5', 'Projeto Duplicado AP5'] (todos iguais — intenção era 1 recurso)
+2026-09-29 13:33:38 |   → DUPLICAÇÃO CONFIRMADA: 3 recursos para 1 intenção de negócio.
+2026-09-29 13:33:38 | 
+==============================================================
+  C6 — Controle de Segurança: Bearer Token
+==============================================================
+2026-09-29 13:33:38 | Hipótese: sem token → 401 | token inválido → 401 | token válido → 201.
+2026-09-29 13:33:38 | Propriedade coberta: Autenticidade (identidade) + Autorização (permissão de acesso).
+2026-09-29 13:33:39 |   [Sem token]      status=401 | body={'dica': 'Envie o header: Authorization: Bearer <token>', 'erro': 'Token ausente ou formato inválido', 'propriedade_violada': 'Autenticidade'}
+2026-09-29 13:33:39 |   [Token inválido] status=401 | body={'erro': 'Token inválido ou expirado', 'propriedade_violada': 'Autorização'}
+2026-09-29 13:33:39 |   [Token válido]   status=201 | body={'criado_em': '2026-09-29T13:33:39', 'id': 4, 'nome': 'Com Token Válido', 'protegido': True}
+2026-09-29 13:33:39 | 
+  → Sem token 401: ✓ | Token inválido 401: ✓ | Token válido 201: ✓
+2026-09-29 13:33:39 | 
+==============================================================
+  C7 — Idempotency-Key (Bônus): Mitigação de Duplicação
+==============================================================
+2026-09-29 13:33:39 | Hipótese: mesmo POST com mesma Idempotency-Key 3× → mesmo ID, sem duplicatas.
+2026-09-29 13:33:39 | Contraste com C5: 3 chamadas → 1 recurso (não 3).
+2026-09-29 13:33:39 |   Tentativa 1: status=201 | id=5 | chave=7486b3a6-887… | idempotente=False
+2026-09-29 13:33:39 |   Tentativa 2: status=200 | id=5 | chave=7486b3a6-887… | idempotente=True
+2026-09-29 13:33:39 |   Tentativa 3: status=200 | id=5 | chave=7486b3a6-887… | idempotente=True
+2026-09-29 13:33:39 | 
+  → IDs retornados: [5, 5, 5]
+2026-09-29 13:33:39 |   → Todos o mesmo ID: ✓ SIM
+2026-09-29 13:33:39 |   → Status codes: [201, 200, 200] (1ª = 201 Created; 2ª, 3ª = 200 OK idempotente)
+2026-09-29 13:33:39 |   → Contraste com C5: 1 recurso(s) criado(s) para 3 chamadas.
+2026-09-29 13:33:39 | 
+  ✅ resultados.md gerado em: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\atividade_pratica5\resultados.md
+2026-09-29 13:33:39 | 
+==============================================================
+2026-09-29 13:33:39 |   ✅ Todos os experimentos concluídos com sucesso.
+2026-09-29 13:33:39 |   📄 Log estruturado : C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\atividade_pratica5\ap5.log
+2026-09-29 13:33:39 |   📊 Tabela markdown : C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\atividade_pratica5\resultados.md
+2026-09-29 13:33:39 | ==============================================================
