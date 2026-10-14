@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
-Atividade Prática 6 (AP6) - Sistemas Distribuídos
-Exploração de Integridade, Replicação e Consenso
-Autor: Aluno (Sistemas Distribuídos)
-Data: 2026-10-14
+Atividade Prática 6: Integridade, Replicação e Consenso
+Disciplina: Sistemas Distribuídos
 """
 
 from dataclasses import dataclass, asdict
