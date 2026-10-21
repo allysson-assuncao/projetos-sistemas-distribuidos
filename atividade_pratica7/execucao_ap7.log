@@ -1,0 +1,79 @@
+================================================================================
+SISTEMAS DISTRIBUÍDOS - ATIVIDADE PRÁTICA 7 (AP7)
+Demonstração Automatizada: Blockchain Distribuída com PoW e Reconciliação
+================================================================================
+
+[INICIALIZAÇÃO] Iniciando Nó 1 na porta 8001 e Nó 2 na porta 8002...
+-> Ambos os nós inicializados com sucesso!
+
+================================================================================
+[ETAPA 1] Configurando a Rede P2P (Cadastro Mútuo de Peers)
+================================================================================
+Nó 1 peers: ['http://127.0.0.1:8002']
+Nó 2 peers: ['http://127.0.0.1:8001']
+
+================================================================================
+[ETAPA 2] Mineração com Proof of Work e Propagação Inicial
+================================================================================
+Minerando Bloco #1 no Nó 1 com dados: {'origem': 'Alice', 'destino': 'Bob', 'valor': 50.0}
+-> Bloco #1 minerado! Nonce: 179 | Hash: 00b99d06134cbce098fa2cae1141819385e7b9d46e50474d2cf2acebf5a88da4
+Nó 2 executando /resolve para sincronizar com Nó 1...
+-> Resposta Nó 2: Cadeia local substituída pela cadeia mais longa do peer (Tamanho: 2)
+Status: Nó 1 tem 2 blocos | Nó 2 tem 2 blocos.
+
+================================================================================
+[ETAPA 3] Produzindo Fork Controlado (Históricos Concorrentes)
+================================================================================
+Nó 1 minerando Bloco #2A: {'origem': 'Alice', 'destino': 'Carol', 'valor': 15.0}
+Nó 2 minerando Bloco #2B: {'origem': 'Bob', 'destino': 'Dave', 'valor': 25.0}
+
+--- Comprovação da Divergência (Fork) ---
+Nó 1 Bloco #2A: Hash = 0087c1c468746d747a7a2b944004886a7d4c43f0197bc5c48f0483c13bb5b455 | Nonce = 1192 | Tx = {'origem': 'Alice', 'destino': 'Carol', 'valor': 15.0}
+Nó 2 Bloco #2B: Hash = 00e422a7e52f24830c4c448e31f6c19d91a6ae74f89e43763257f2ad962b7bbd | Nonce = 78 | Tx = {'origem': 'Bob', 'destino': 'Dave', 'valor': 25.0}
+Ambos os blocos são válidos e apontam para o mesmo Bloco #1 anterior, gerando um fork!
+
+================================================================================
+[ETAPA 4] Avançando a Cadeia do Nó 2 (Ramo Mais Longo)
+================================================================================
+Nó 2 minerando Bloco #3B: {'origem': 'Dave', 'destino': 'Eve', 'valor': 10.0}
+-> Bloco #3B minerado! Nonce: 73 | Hash: 00805a9b822066826bbd00020e41a370fe437f81fe3d32e2fa328183f71fb6d6
+Comprimento das cadeias: Nó 1 = 3 blocos | Nó 2 = 4 blocos.
+
+================================================================================
+[ETAPA 5] Executando Reconciliação Distribuída no Nó 1
+================================================================================
+Nó 1 acionando POST /resolve para consultar vizinhos e reconciliar...
+Resultado do /resolve no Nó 1: Cadeia local substituída pela cadeia mais longa do peer
+Novo comprimento do Nó 1: 4
+
+Blocos atuais no Nó 1 após reconciliação:
+  Bloco #0 | Prev: 000000000000... | Hash: 1b5388fcac13b20e... | Tx: {'msg': 'genesis'}
+  Bloco #1 | Prev: 1b5388fcac13... | Hash: 00b99d06134cbce0... | Tx: {'origem': 'Alice', 'destino': 'Bob', 'valor': 50.0}
+  Bloco #2 | Prev: 00b99d06134c... | Hash: 00e422a7e52f2483... | Tx: {'origem': 'Bob', 'destino': 'Dave', 'valor': 25.0}
+  Bloco #3 | Prev: 00e422a7e52f... | Hash: 00805a9b82206682... | Tx: {'origem': 'Dave', 'destino': 'Eve', 'valor': 10.0}
+
+================================================================================
+[ETAPA 6] Teste de Adulteração de Dados e Rejeição pelos Pares
+================================================================================
+Adulterando deliberadamente o Bloco #1 no Nó 2 via /tamper...
+Nó 2 tamper: Bloco #1 adulterado com sucesso!
+Validação interna do Nó 2: Válida = False | Detalhe: Bloco #1: hash armazenado (00b99d0613...) difere do recalculado (1817a86294...)
+
+Nó 1 acionando /resolve para ver se aceita a cadeia corrompida do Nó 2...
+Resultado no Nó 1: Cadeia local mantida (maior ou peers inválidos/iguais)
+Nó 1 continua íntegro: Válida = True (Cadeia integra e valida)
+
+================================================================================
+[ETAPA 7] Teste de Resiliência a Peer Indisponível/Offline
+================================================================================
+Cadastrando peer offline (http://127.0.0.1:8999) no Nó 1...
+Nó 1 acionando /resolve com peer indisponível...
+Resultado do /resolve: Cadeia local mantida (maior ou peers inválidos/iguais)
+Nó 1 tratou a falha de conexão graciosa sem travar nem derrubar a aplicação!
+
+================================================================================
+TODOS OS TESTES E REQUISITOS DA AP7 FORAM CONCLUÍDOS COM SUCESSO!
+================================================================================
+
+[FINALIZAÇÃO] Encerrando processos dos nós HTTP...
+Processos encerrados com sucesso.
