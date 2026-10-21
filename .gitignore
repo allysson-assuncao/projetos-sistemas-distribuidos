@@ -5,6 +5,9 @@
 !.env.example
 .venv
 ./.venv
-# Ignore python cache
-.__pycache__
-./__pycache__
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
