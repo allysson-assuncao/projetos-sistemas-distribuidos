@@ -46,6 +46,14 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+> [!TIP]
+> **Sem Docker no laboratório? Não se preocupe!**
+> O Docker serve apenas para subir o Mosquitto na porta 1883. Você pode simplesmente:
+> - Instalar o Mosquitto nativo via `winget install EclipseFoundation.Mosquitto` ou instalador .exe de [mosquitto.org](https://mosquitto.org/download/);
+> - Ou levar o Mosquitto portátil em um pen drive;
+> - Ou instalar um broker MQTT em Python puro via `pip install amqtt` e rodar `amqtt`.
+> O resto do sistema (controladores, middleware, sensores, atuadores) roda exatamente igual!
+
 ---
 
 ## 2. Mapa Mental e Arquitetura do Sistema

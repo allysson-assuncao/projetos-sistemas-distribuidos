@@ -176,10 +176,21 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-> [!TIP]
-> **Verificação do Docker no Windows:**  
-> Certifique-se de que o **Docker Desktop** esteja aberto e com a barra inferior verde ("Engine running"). No terminal, confirme rodando `docker ps`.  
-> *(Caso a máquina do laboratório não possua Docker, instale o Mosquitto nativo via `winget install EclipseFoundation.Mosquitto` e inicie com `mosquitto -c mosquitto\mosquitto.conf -v`).*
+> [!IMPORTANT]
+> **E se o laboratório NÃO tiver Docker ou você não tiver permissão de Administrador?**  
+> O Docker é utilizado **exclusivamente para subir o broker Mosquitto**. Todo o restante da aplicação é Python puro. Caso o Docker não esteja disponível, use uma das alternativas:
+> 1. **Mosquitto Nativo (.exe):** Baixe o executável oficial de [mosquitto.org/download](https://mosquitto.org/download/) ou via `winget install EclipseFoundation.Mosquitto`. No Painel 1, em vez de `docker compose up -d`, execute:
+>    ```powershell
+>    mosquitto -c mosquitto\mosquitto.conf -v
+>    # Ou indicando o caminho de instalação:
+>    & "C:\Program Files\mosquitto\mosquitto.exe" -c mosquitto\mosquitto.conf -v
+>    ```
+> 2. **Mosquitto Portátil (Pen Drive):** Você pode levar a pasta extraída do Mosquitto em um pen drive e executá-lo diretamente sem instalar nada no sistema operacional.
+> 3. **Broker MQTT em Python Puro (amqtt):** Sem necessidade de instalar nenhum software externo além de pacotes Python:
+>    ```powershell
+>    pip install amqtt
+>    amqtt
+>    ```
 
 #### 2.2 Inicialização Automatizada (PowerShell)
 Com o PowerShell na pasta raiz do projeto:
