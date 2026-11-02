@@ -1,9 +1,9 @@
-# Trabalho Prático 1 - Sistemas Distribuídos
-## Estufa Agrícola Automatizada — Sistema Distribuído com MQTT e XML-RPC
+# Trabalho Prático 1 — Sistemas Distribuídos
+## Controle Automatizado de Estufa Agrícola com MQTT e XML-RPC
 
-> **Relatório Técnico Completo:** [`relatorio/relatorio.md`](relatorio/relatorio.md)
+**Relatório Técnico:** [`relatorio/relatorio.md`](relatorio/relatorio.md)
 
-Este projeto implementa um sistema distribuído para controle automatizado de uma estufa agrícola, combinando mensageria assíncrona pub/sub (MQTT) com invocação remota síncrona (XML-RPC), replicação ativa com tolerância a falhas Byzantinas e deduplicação de comandos via cache LRU.
+Implementação de um sistema distribuído para monitoramento e acionamento automatizado de uma estufa agrícola. A arquitetura integra mensageria assíncrona publicar/assinar (MQTT) para telemetria e atuação, invocação remota de procedimentos (XML-RPC) para coordenação entre processos, replicação ativa de controladores com votação majoritária ($N = 2f + 1 = 3$) e deduplicação de comandos no atuador via cache LRU.
 
 ---
 
@@ -11,268 +11,133 @@ Este projeto implementa um sistema distribuído para controle automatizado de um
 
 ```mermaid
 graph TD
-    Sensor[Sensores MQTT] -->|pub :1883| Broker[(Mosquitto Broker)]
+    Sensor[Sensores MQTT] -->|pub :1883| Broker[(Broker Mosquitto)]
     Broker -->|sub| Ctrl1[Controlador 1 :8001]
     Broker -->|sub| Ctrl2[Controlador 2 :8002]
     Broker -->|sub| Ctrl3[Controlador 3 :8003]
     Ctrl1 -->|pub| Broker
     Ctrl2 -->|pub| Broker
     Ctrl3 -->|pub| Broker
-    Broker -->|sub| Actuator[Atuador LRU Dedup]
-    Client[Cliente] -->|XML-RPC :9000| Middleware[Middleware Server]
+    Broker -->|sub| Actuator[Atuador com Cache LRU]
+    Client[Cliente CLI] -->|XML-RPC :9000| Middleware[Servidor de Middleware]
     Middleware -->|XML-RPC :8001| Ctrl1
     Middleware -->|XML-RPC :8002| Ctrl2
     Middleware -->|XML-RPC :8003| Ctrl3
 ```
 
-### Componentes
+### Componentes e Estrutura
 
-| Componente | Arquivo | Descrição |
+| Componente | Arquivo | Papel Arquitetural |
 |---|---|---|
-| **Broker MQTT** | Docker (Mosquitto) | Central de mensagens assíncronas (pub/sub) |
-| **Sensor** | `estufa/sensor.py` | Publica temperatura e umidade simuladas |
-| **Controlador (×3)** | `estufa/controlador.py` | Lógica de decisão + Servidor XML-RPC (:8001–:8003) |
-| **Middleware Engine** | `estufa/middleware.py` | Algoritmo de votação BFT (interno) |
-| **Middleware Server** | `estufa/middleware_server.py` | Servidor standalone :9000 — ponto de entrada único |
-| **Cliente** | `estufa/cliente.py` | Interface CLI; conecta exclusivamente ao Middleware |
-| **Atuador** | `estufa/atuador.py` | Executa comandos; cache LRU anti-duplicatas |
+| **Configuração** | `estufa/config.py` | Tópicos MQTT, portas XML-RPC, limiares de controle e parâmetros de quórum |
+| **Sensor** | `estufa/sensor.py` | Publica leituras simuladas de temperatura e umidade do solo via MQTT (QoS 1) |
+| **Controlador (×3)** | `estufa/controlador.py` | Consome sensores, avalia regras de controle, persiste estado em JSON e expõe servidor XML-RPC (`:8001`–`:8003`) |
+| **Motor de Votação** | `estufa/middleware.py` | Invoca as réplicas em paralelo e apura quórum mínimo (2 de 3) |
+| **Servidor de Middleware** | `estufa/middleware_server.py` | Processo XML-RPC na porta `9000`; ponto único de acesso para o cliente e para sincronização de réplicas |
+| **Atuador** | `estufa/atuador.py` | Subscreve aos tópicos de acionamento e filtra comandos redundantes das réplicas com cache LRU |
+| **Cliente** | `estufa/cliente.py` | Interface CLI para consulta de estado, acionamento manual e verificação de saúde do cluster |
 
 ---
 
-## Estrutura do Projeto
+## Mecanismos de Sistemas Distribuídos
 
-```
-trabalho_pratico1/
-│
-├── .gitignore
-├── docker-compose.yml              # Broker Mosquitto
-├── mosquitto/
-│   └── mosquitto.conf
-│
-├── requirements.txt                # paho-mqtt, pytest
-├── README.md                       # Este arquivo
-│
-├── estufa/                         # Pacote principal
-│   ├── __init__.py
-│   ├── config.py                   # Constantes globais (portas, tópicos, limiares)
-│   ├── sensor.py                   # Publicador MQTT
-│   ├── atuador.py                  # Assinante MQTT + cache LRU
-│   ├── controlador.py              # Decisão + XML-RPC Server + boot-sync
-│   ├── middleware.py               # Motor de votação BFT (uso interno)
-│   ├── middleware_server.py        # Servidor XML-RPC standalone (:9000)
-│   └── cliente.py                  # Cliente CLI
-│
-├── tests/
-│   ├── __init__.py
-│   ├── test_atuador.py             # Testes LRU deduplication
-│   ├── test_controlador.py         # Testes lógica de decisão + IDs
-│   └── test_middleware.py          # Testes votação BFT (com mocks)
-│
-├── scripts/
-│   ├── start_all.sh                # Script de inicialização Unix
-│   └── start_all.ps1               # Script de inicialização Windows
-│
-└── relatorio/
-    └── relatorio.md                # Relatório técnico acadêmico
-```
+1. **Transparência de Acesso e Replicação:** O cliente comunica-se exclusivamente com o servidor de Middleware (`:9000`), sem conhecer a localização individual das réplicas (`:8001`–`:8003`).
+2. **Transferência de Estado na Inicialização (*State Transfer*):** Ao iniciar ou recuperar-se de falha, cada controlador sincroniza seu estado consultando o quórum vigente no Middleware antes de consumir mensagens MQTT.
+3. **Deduplicação de Comandos:**
+   - **Acionamento autônomo:** Cada réplica calcula `comando_id = MD5(acao + sensor_timestamp)`. Como todas processam o mesmo evento publicado pelo sensor, geram o mesmo identificador.
+   - **Acionamento manual:** O Middleware gera um `UUID4` por requisição e o repassa às 3 réplicas.
+   - O atuador mantém um cache LRU (`OrderedDict`) dos últimos `comando_id` processados, executando cada transição física uma única vez.
 
 ---
 
-## Correções Arquiteturais (V2)
+## Pré-requisitos e Instalação
 
-1. **Middleware Standalone:** O middleware opera como um processo servidor independente (`middleware_server.py`, porta 9000). Clientes nunca se conectam diretamente aos controladores.
+- **Python 3.10+**
+- **Broker MQTT** na porta `1883` (via Docker Compose com Eclipse Mosquitto ou serviço local equivalente)
 
-2. **Transferência de Estado no Boot:** Controladores sincronizam seu estado local via Middleware antes de iniciar o consumo MQTT, garantindo convergência imediata após crash recovery.
-
-3. **Deduplicação Determinística:** Controladores geram `comando_id` como `MD5(acao + sensor_timestamp)`. Como todos recebem o mesmo payload MQTT (mesmo timestamp), produzem o mesmo hash. O Atuador usa cache LRU para descartar as 2 publicações redundantes.
-
----
-
-## Pré-requisitos Gerais
-
-- **Python 3.10+** (no Windows, certifique-se de marcar a opção *"Add python.exe to PATH"* durante a instalação)
-- **Docker Desktop** (com motor iniciado e funcional) ou **Mosquitto nativo** (fallback)
-- **Git** (para clonar o repositório)
-
----
-
-## Como Executar
-
-> ⚠️ **Atenção:** A ordem de inicialização é estrita e obrigatória. O Broker e o Middleware Server **devem** estar ativos antes dos Controladores, pois estes realizam transferência de estado (*State Transfer*) via quórum no momento do boot.
-
----
-
-### 🐧 1. Guia de Execução no Linux / macOS
-
-#### 1.1 Preparação do Ambiente
 ```bash
-# Clone e acesse o diretório
-git clone <URL_DO_REPOSITORIO>
-cd trabalho_pratico1
-
-# Crie e ative o ambiente virtual
 python3 -m venv .venv
-source .venv/bin/activate
-
-# Instale as dependências
+source .venv/bin/activate   # No Windows (PowerShell): .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
-
-#### 1.2 Inicialização Automatizada (Script)
-```bash
-bash scripts/start_all.sh
-# Em seguida, em um novo terminal com a .venv ativa, inicie o cliente:
-python3 -m estufa.cliente
-```
-
-#### 1.3 Inicialização Manual (8 Terminais / Abas)
-1. **Terminal 1 (Broker MQTT):**
-   ```bash
-   docker compose up -d
-   ```
-2. **Terminal 2 (Middleware Server :9000):**
-   ```bash
-   python3 -m estufa.middleware_server
-   ```
-3. **Terminais 3, 4 e 5 (Controladores Replicados):**
-   ```bash
-   python3 -m estufa.controlador --id ctrl_1 --port 8001 --data data_ctrl_1.json
-   python3 -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json
-   python3 -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json
-   ```
-4. **Terminal 6 (Atuador com Cache LRU):**
-   ```bash
-   python3 -m estufa.atuador
-   ```
-5. **Terminal 7 (Sensores de Telemetria):**
-   ```bash
-   python3 -m estufa.sensor --modo normal
-   ```
-6. **Terminal 8 (Cliente CLI Interativo):**
-   ```bash
-   python3 -m estufa.cliente
-   ```
 
 ---
 
-### 🪟 2. Guia de Execução no Windows (Máquinas de Laboratório)
+## Execução
 
-#### 2.1 Preparação do Ambiente no PowerShell
-Abra o **PowerShell** como usuário padrão e navegue até a pasta onde deseja clonar:
+A ordem de inicialização respeita a dependência de sincronização de estado: **Broker MQTT → Servidor de Middleware → Controladores → Atuador → Sensor → Cliente**.
 
-```powershell
-# 1. Clone o repositório e acesse a pasta
-git clone <URL_DO_REPOSITORIO>
-cd trabalho_pratico1
+### Inicialização por Script
 
-# 2. Permita a execução de scripts no processo atual do PowerShell (evita erro de restrição de política)
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+- **Linux / macOS:**
+  ```bash
+  bash scripts/start_all.sh
+  python3 -m estufa.cliente
+  ```
+- **Windows (PowerShell):**
+  ```powershell
+  .\scripts\start_all.ps1
+  python -m estufa.cliente
+  ```
 
-# 3. Crie e ative o ambiente virtual Python
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+### Inicialização Manual por Processo
 
-# 4. Instale as dependências
-pip install -r requirements.txt
-```
+Com o ambiente virtual ativo em cada terminal:
 
-> [!IMPORTANT]
-> **E se o laboratório NÃO tiver Docker ou você não tiver permissão de Administrador?**  
-> O Docker é utilizado **exclusivamente para subir o broker Mosquitto**. Todo o restante da aplicação é Python puro. Caso o Docker não esteja disponível, use uma das alternativas:
-> 1. **Mosquitto Nativo (.exe):** Baixe o executável oficial de [mosquitto.org/download](https://mosquitto.org/download/) ou via `winget install EclipseFoundation.Mosquitto`. No Painel 1, em vez de `docker compose up -d`, execute:
->    ```powershell
->    mosquitto -c mosquitto\mosquitto.conf -v
->    # Ou indicando o caminho de instalação:
->    & "C:\Program Files\mosquitto\mosquitto.exe" -c mosquitto\mosquitto.conf -v
->    ```
-> 2. **Mosquitto Portátil (Pen Drive):** Você pode levar a pasta extraída do Mosquitto em um pen drive e executá-lo diretamente sem instalar nada no sistema operacional.
-> 3. **Broker MQTT em Python Puro (amqtt):** Sem necessidade de instalar nenhum software externo além de pacotes Python:
->    ```powershell
->    pip install amqtt
->    amqtt
->    ```
+```bash
+# 1. Broker MQTT
+docker compose up -d
 
-#### 2.2 Inicialização Automatizada (PowerShell)
-Com o PowerShell na pasta raiz do projeto:
-```powershell
-.\scripts\start_all.ps1
-```
-*O script abrirá janelas individuais para cada componente e exibirá as mensagens em tempo real. Depois, no seu terminal principal, execute:*
-```powershell
+# 2. Servidor de Middleware (porta 9000)
+python -m estufa.middleware_server
+
+# 3. Réplicas de Controlador (portas 8001, 8002 e 8003)
+python -m estufa.controlador --id ctrl_1 --port 8001 --data data_ctrl_1.json
+python -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json
+python -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json
+
+# 4. Atuador
+python -m estufa.atuador
+
+# 5. Sensor (perfis disponíveis: normal, seco, quente, frio)
+python -m estufa.sensor --modo normal
+
+# 6. Cliente interativo (ou --auto para consulta contínua)
 python -m estufa.cliente
 ```
 
-#### 2.3 Inicialização Manual no Windows (Recomendado via Windows Terminal)
-Abra o **Windows Terminal** e crie 8 painéis/abas (`Alt+Shift++` para divisão vertical ou `Ctrl+Shift+T` para abas). Em todos eles, garanta que o ambiente virtual esteja ativo (`.\.venv\Scripts\Activate.ps1`):
+### Simulação de Falha Bizantina
 
-1. **Painel 1 (Broker MQTT):**
-   ```powershell
-   docker compose up -d
-   ```
-2. **Painel 2 (Middleware Server :9000):**
-   ```powershell
-   python -m estufa.middleware_server
-   ```
-3. **Painéis 3, 4 e 5 (Controladores):**
-   ```powershell
-   python -m estufa.controlador --id ctrl_1 --port 8001 --data data_ctrl_1.json
-   python -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json
-   python -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json
-   ```
-4. **Painel 6 (Atuador):**
-   ```powershell
-   python -m estufa.atuador
-   ```
-5. **Painel 7 (Sensor):**
-   ```powershell
-   python -m estufa.sensor --modo normal
-   ```
-6. **Painel 8 (Cliente CLI):**
-   ```powershell
-   python -m estufa.cliente
-   ```
-
-### Demo Byzantina
+Para iniciar uma das réplicas simulando comportamento bizantino (retorno de leituras adulteradas e estados invertidos):
 
 ```bash
-# Substitua ctrl_2 por uma réplica Byzantina
 python -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json --byzantino
 ```
 
 ---
 
+## Limiares de Controle e Tolerância a Falhas
+
+| Variável | Condição | Atuador | Ação |
+|---|---|---|---|
+| Temperatura | `> 35.0 °C` | Exaustor | Ligar |
+| Temperatura | `< 15.0 °C` | Exaustor | Desligar |
+| Umidade do Solo | `< 30.0 %` | Bomba de Irrigação | Ligar |
+| Umidade do Solo | `> 70.0 %` | Bomba de Irrigação | Desligar |
+
+| Cenário | Comportamento do Sistema |
+|---|---|
+| 1 controlador inativo (*crash*) | Quórum 2/3 mantido; operação normal sem interrupção |
+| 1 controlador bizantino | Resposta divergente descartada na votação majoritária (2 votos honestos contra 1) |
+| 2 ou mais controladores inativos | `ErroQuorum` reportado ao cliente por ausência de maioria |
+| Reinicialização de réplica | Sincronização automática do estado atual via Middleware no boot |
+
+---
+
 ## Testes Automatizados
 
-Os testes unitários **não requerem** broker MQTT ou processos em execução:
+A suíte utiliza `pytest` com *mocks* para isolamento das chamadas de rede e não exige broker ou processos externos em execução:
 
 ```bash
-# Da raiz do projeto (trabalho_pratico1/)
 pytest tests/ -v
-
-# Arquivo específico
-pytest tests/test_controlador.py -v
-pytest tests/test_middleware.py -v
-pytest tests/test_atuador.py -v
 ```
-
----
-
-## Limiares de Controle
-
-| Sensor | Condição | Atuador | Ação |
-|---|---|---|---|
-| Temperatura | > 35°C | Exaustor | LIGAR |
-| Temperatura | < 15°C | Exaustor | DESLIGAR |
-| Umidade do Solo | < 30% | Bomba de Irrigação | LIGAR |
-| Umidade do Solo | > 70% | Bomba de Irrigação | DESLIGAR |
-
----
-
-## Tolerância a Falhas
-
-| Cenário | Comportamento |
-|---|---|
-| 1 controlador crashado | Quórum 2/3 mantido; sistema opera normalmente |
-| 1 controlador Byzantino | Votação neutraliza resposta divergente; resultado honesto retornado |
-| 2 controladores crashados | ErroQuorum levantado; cliente recebe erro claro |
-| Controlador reinicia | Sincroniza estado via Middleware antes de retomar operação |

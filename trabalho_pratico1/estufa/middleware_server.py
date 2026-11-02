@@ -1,19 +1,12 @@
 """
-middleware_server.py — Standalone Middleware XML-RPC Server.
+middleware_server.py — Servidor XML-RPC do Middleware.
 
-This is the MAIN ENTRY POINT for the Middleware layer.
-It exposes a single XML-RPC interface on MIDDLEWARE_PORT (default: 9000).
+Expõe um ponto único de acesso na porta configurada em MIDDLEWARE_PORT (9000),
+isolando os clientes e os controladores em recuperação da topologia interna
+das réplicas.
 
-Architecture:
-  - Clients connect to THIS server via XML-RPC (never to controllers directly)
-  - This server uses the internal Middleware voting engine to orchestrate
-    parallel calls to all 3 controllers and returns the quorum result
-
-  [Client] --XML-RPC:9000--> [MiddlewareServer] --XML-RPC:8001/8002/8003--> [Controllers]
-
-Usage:
-    python -m estufa.middleware_server
-    python -m estufa.middleware_server --host localhost --port 9000
+Uso:
+    python -m estufa.middleware_server [--host HOST] [--port PORT]
 """
 
 import argparse
@@ -23,90 +16,47 @@ from estufa import config
 
 
 class MiddlewareService:
-    """
-    XML-RPC service class that wraps the internal Middleware voting engine.
-
-    All methods exposed here are callable by clients via XML-RPC.
-    Exceptions (ErroQuorum) are automatically serialized by the XML-RPC protocol
-    as Fault objects, which the client's xmlrpc.client will raise as exceptions.
-    """
+    """Adaptador XML-RPC que delega as operações ao motor de votação do Middleware."""
 
     def __init__(self):
         self._mw = Middleware()
 
     def obter_estado(self) -> dict:
-        """
-        [XML-RPC] Queries the majority-approved greenhouse state.
-
-        Returns:
-            dict: Quorum-approved state with temperatura, umidade_solo,
-                  bomba_ligada, exaustor_ligado fields.
-
-        Raises:
-            xmlrpc.client.Fault: If quorum cannot be reached.
-        """
+        """Retorna o estado da estufa aprovado por maioria."""
         try:
             return self._mw.obter_estado()
         except ErroQuorum as e:
             raise Exception(f"ERRO_QUORUM: {e}")
 
     def comandar_bomba(self, acao: str) -> dict:
-        """
-        [XML-RPC] Sends pump command to all controllers with deduplication ID.
-
-        Args:
-            acao: 'ligar' or 'desligar'
-
-        Returns:
-            dict: Quorum-approved response with 'sucesso' and 'mensagem'.
-        """
+        """Repassa o comando da bomba às réplicas e valida o quórum da resposta."""
         try:
             return self._mw.comandar_bomba(acao)
         except ErroQuorum as e:
             raise Exception(f"ERRO_QUORUM: {e}")
 
     def comandar_exaustor(self, acao: str) -> dict:
-        """
-        [XML-RPC] Sends exhaust fan command to all controllers with deduplication ID.
-
-        Args:
-            acao: 'ligar' or 'desligar'
-
-        Returns:
-            dict: Quorum-approved response with 'sucesso' and 'mensagem'.
-        """
+        """Repassa o comando do exaustor às réplicas e valida o quórum da resposta."""
         try:
             return self._mw.comandar_exaustor(acao)
         except ErroQuorum as e:
             raise Exception(f"ERRO_QUORUM: {e}")
 
     def verificar_saude(self) -> dict:
-        """
-        [XML-RPC] Health-check: returns status of each controller replica.
-
-        Returns:
-            dict: Maps controller_id -> 'ok' or error message.
-        """
+        """Retorna o status de disponibilidade de cada réplica de controlador."""
         return self._mw.verificar_saude()
 
     def ping(self) -> str:
-        """[XML-RPC] Health-check for the Middleware Server itself."""
+        """Verificação simples de atividade do servidor de Middleware."""
         return "pong:middleware_server"
 
 
 def iniciar_servidor(host: str = None, port: int = None) -> None:
-    """
-    Starts the Middleware XML-RPC server.
-
-    Args:
-        host: Host to bind. Defaults to config.MIDDLEWARE_HOST.
-        port: Port to bind. Defaults to config.MIDDLEWARE_PORT.
-    """
+    """Inicializa e mantém o servidor XML-RPC do Middleware em execução."""
     host = host or config.MIDDLEWARE_HOST
     port = port or config.MIDDLEWARE_PORT
 
     class SilentHandler(SimpleXMLRPCRequestHandler):
-        """Suppresses HTTP access logs."""
         def log_message(self, fmt, *args):
             pass
 
@@ -121,24 +71,23 @@ def iniciar_servidor(host: str = None, port: int = None) -> None:
     server.register_instance(service)
     server.register_introspection_functions()
 
-    print(f"[MIDDLEWARE SERVER] 🚀 Iniciando em {host}:{port}")
-    print(f"[MIDDLEWARE SERVER] Orquestrando {len(config.CONTROLADORES)} controladores:")
+    print(f"[MIDDLEWARE SERVER] Iniciando em {host}:{port}")
+    print(f"[MIDDLEWARE SERVER] Controladores configurados ({len(config.CONTROLADORES)}):")
     for ctrl in config.CONTROLADORES:
         print(f"  - {ctrl['id']} @ {ctrl['host']}:{ctrl['port']}")
-    print(f"[MIDDLEWARE SERVER] Aguardando conexões de clientes em http://{host}:{port}")
-    print(f"[MIDDLEWARE SERVER] Ctrl+C para encerrar.")
+    print(f"[MIDDLEWARE SERVER] Aguardando conexões em http://{host}:{port} (Ctrl+C para encerrar)")
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n[MIDDLEWARE SERVER] 🛑 Encerrando servidor.")
+        print("\n[MIDDLEWARE SERVER] Encerrando servidor.")
         server.server_close()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Middleware XML-RPC Server — Estufa Agrícola")
-    parser.add_argument("--host", default=config.MIDDLEWARE_HOST, help="Server host")
-    parser.add_argument("--port", default=config.MIDDLEWARE_PORT, type=int, help="Server port")
+    parser = argparse.ArgumentParser(description="Servidor XML-RPC do Middleware — Estufa Agrícola")
+    parser.add_argument("--host", default=config.MIDDLEWARE_HOST, help="Endereço do servidor")
+    parser.add_argument("--port", default=config.MIDDLEWARE_PORT, type=int, help="Porta do servidor")
     args = parser.parse_args()
 
     iniciar_servidor(host=args.host, port=args.port)

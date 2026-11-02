@@ -16,14 +16,11 @@ import argparse
 import json
 import random
 import time
-# pyrefly: ignore [missing-import]
 import paho.mqtt.client as mqtt
 from estufa import config
 
 
-# ─────────────────────────────────────────
-# Perfis de simulação pré-configurados
-# ─────────────────────────────────────────
+# Perfis de simulação para testes de acionamento
 PERFIS = {
     "normal": {"temp": (20.0, 30.0), "umidade": (40.0, 65.0)},
     "seco":   {"temp": (25.0, 33.0), "umidade": (10.0, 29.0)},  # dispara bomba
