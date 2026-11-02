@@ -88,69 +88,138 @@ trabalho_pratico1/
 
 ---
 
-## Pré-requisitos
+## Pré-requisitos Gerais
 
-- Python 3.10+
-- Docker Desktop (para o broker Mosquitto)
-
-```bash
-pip install -r requirements.txt
-```
+- **Python 3.10+** (no Windows, certifique-se de marcar a opção *"Add python.exe to PATH"* durante a instalação)
+- **Docker Desktop** (com motor iniciado e funcional) ou **Mosquitto nativo** (fallback)
+- **Git** (para clonar o repositório)
 
 ---
 
 ## Como Executar
 
-> ⚠️ **A ordem de inicialização é obrigatória.** Os controladores tentam sincronizar estado com o Middleware durante o boot.
+> ⚠️ **Atenção:** A ordem de inicialização é estrita e obrigatória. O Broker e o Middleware Server **devem** estar ativos antes dos Controladores, pois estes realizam transferência de estado (*State Transfer*) via quórum no momento do boot.
 
-### Opção 1 — Scripts automatizados
+---
 
-**Unix/macOS:**
+### 🐧 1. Guia de Execução no Linux / macOS
+
+#### 1.1 Preparação do Ambiente
 ```bash
-bash scripts/start_all.sh
+# Clone e acesse o diretório
+git clone <URL_DO_REPOSITORIO>
+cd trabalho_pratico1
+
+# Crie e ative o ambiente virtual
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Instale as dependências
+pip install -r requirements.txt
 ```
 
-**Windows (PowerShell):**
+#### 1.2 Inicialização Automatizada (Script)
+```bash
+bash scripts/start_all.sh
+# Em seguida, em um novo terminal com a .venv ativa, inicie o cliente:
+python3 -m estufa.cliente
+```
+
+#### 1.3 Inicialização Manual (8 Terminais / Abas)
+1. **Terminal 1 (Broker MQTT):**
+   ```bash
+   docker compose up -d
+   ```
+2. **Terminal 2 (Middleware Server :9000):**
+   ```bash
+   python3 -m estufa.middleware_server
+   ```
+3. **Terminais 3, 4 e 5 (Controladores Replicados):**
+   ```bash
+   python3 -m estufa.controlador --id ctrl_1 --port 8001 --data data_ctrl_1.json
+   python3 -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json
+   python3 -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json
+   ```
+4. **Terminal 6 (Atuador com Cache LRU):**
+   ```bash
+   python3 -m estufa.atuador
+   ```
+5. **Terminal 7 (Sensores de Telemetria):**
+   ```bash
+   python3 -m estufa.sensor --modo normal
+   ```
+6. **Terminal 8 (Cliente CLI Interativo):**
+   ```bash
+   python3 -m estufa.cliente
+   ```
+
+---
+
+### 🪟 2. Guia de Execução no Windows (Máquinas de Laboratório)
+
+#### 2.1 Preparação do Ambiente no PowerShell
+Abra o **PowerShell** como usuário padrão e navegue até a pasta onde deseja clonar:
+
+```powershell
+# 1. Clone o repositório e acesse a pasta
+git clone <URL_DO_REPOSITORIO>
+cd trabalho_pratico1
+
+# 2. Permita a execução de scripts no processo atual do PowerShell (evita erro de restrição de política)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# 3. Crie e ative o ambiente virtual Python
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# 4. Instale as dependências
+pip install -r requirements.txt
+```
+
+> [!TIP]
+> **Verificação do Docker no Windows:**  
+> Certifique-se de que o **Docker Desktop** esteja aberto e com a barra inferior verde ("Engine running"). No terminal, confirme rodando `docker ps`.  
+> *(Caso a máquina do laboratório não possua Docker, instale o Mosquitto nativo via `winget install EclipseFoundation.Mosquitto` e inicie com `mosquitto -c mosquitto\mosquitto.conf -v`).*
+
+#### 2.2 Inicialização Automatizada (PowerShell)
+Com o PowerShell na pasta raiz do projeto:
 ```powershell
 .\scripts\start_all.ps1
 ```
-
-### Opção 2 — Manual (terminal separado para cada processo)
-
-**Terminal 1 — Broker MQTT:**
-```bash
-docker compose up -d
-```
-
-**Terminal 2 — Middleware Server (INICIAR ANTES DOS CONTROLADORES):**
-```bash
-cd trabalho_pratico1
-python -m estufa.middleware_server
-```
-
-**Terminais 3, 4, 5 — Controladores:**
-```bash
-python -m estufa.controlador --id ctrl_1 --port 8001 --data data_ctrl_1.json
-python -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json
-python -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json
-```
-
-**Terminal 6 — Atuador:**
-```bash
-python -m estufa.atuador
-```
-
-**Terminal 7 — Sensor:**
-```bash
-python -m estufa.sensor --modo normal   # Operação normal
-python -m estufa.sensor --modo seco     # Força acionamento da bomba
-python -m estufa.sensor --modo quente   # Força acionamento do exaustor
-```
-
-**Terminal 8 — Cliente:**
-```bash
+*O script abrirá janelas individuais para cada componente e exibirá as mensagens em tempo real. Depois, no seu terminal principal, execute:*
+```powershell
 python -m estufa.cliente
 ```
+
+#### 2.3 Inicialização Manual no Windows (Recomendado via Windows Terminal)
+Abra o **Windows Terminal** e crie 8 painéis/abas (`Alt+Shift++` para divisão vertical ou `Ctrl+Shift+T` para abas). Em todos eles, garanta que o ambiente virtual esteja ativo (`.\.venv\Scripts\Activate.ps1`):
+
+1. **Painel 1 (Broker MQTT):**
+   ```powershell
+   docker compose up -d
+   ```
+2. **Painel 2 (Middleware Server :9000):**
+   ```powershell
+   python -m estufa.middleware_server
+   ```
+3. **Painéis 3, 4 e 5 (Controladores):**
+   ```powershell
+   python -m estufa.controlador --id ctrl_1 --port 8001 --data data_ctrl_1.json
+   python -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json
+   python -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json
+   ```
+4. **Painel 6 (Atuador):**
+   ```powershell
+   python -m estufa.atuador
+   ```
+5. **Painel 7 (Sensor):**
+   ```powershell
+   python -m estufa.sensor --modo normal
+   ```
+6. **Painel 8 (Cliente CLI):**
+   ```powershell
+   python -m estufa.cliente
+   ```
 
 ### Demo Byzantina
 
