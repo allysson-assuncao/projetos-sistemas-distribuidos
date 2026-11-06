@@ -1,0 +1,92 @@
+{
+  "experiment": "AP9 - Observability, Metrics & Fault Injection",
+  "parameters": {
+    "requests_per_scenario": 100,
+    "concurrency_workers": 10,
+    "client_timeout_ms": 200,
+    "deterministic_seed_base": 42000
+  },
+  "scenarios": [
+    {
+      "scenario": "nominal",
+      "total_requests": 100,
+      "concurrency": 10,
+      "client_timeout_ms": 200,
+      "wall_time_s": 0.169,
+      "throughput_rps": 593.17,
+      "success_count": 100,
+      "error_count": 0,
+      "http_503_count": 0,
+      "timeout_count": 0,
+      "error_rate_pct": 0.0,
+      "latency_all_ms": {
+        "min": 6.18,
+        "mean": 13.82,
+        "p50": 13.73,
+        "p95": 20.74,
+        "p99": 21.58,
+        "max": 22.92
+      },
+      "latency_success_only_ms": {
+        "mean": 13.82,
+        "p50": 13.73,
+        "p95": 20.74,
+        "p99": 21.58
+      }
+    },
+    {
+      "scenario": "latency_spike",
+      "total_requests": 100,
+      "concurrency": 10,
+      "client_timeout_ms": 200,
+      "wall_time_s": 0.661,
+      "throughput_rps": 151.23,
+      "success_count": 92,
+      "error_count": 8,
+      "http_503_count": 0,
+      "timeout_count": 8,
+      "error_rate_pct": 8.0,
+      "latency_all_ms": {
+        "min": 6.48,
+        "mean": 54.25,
+        "p50": 16.87,
+        "p95": 207.97,
+        "p99": 212.66,
+        "max": 215.68
+      },
+      "latency_success_only_ms": {
+        "mean": 40.85,
+        "p50": 16.16,
+        "p95": 153.43,
+        "p99": 160.26
+      }
+    },
+    {
+      "scenario": "intermittent_error",
+      "total_requests": 100,
+      "concurrency": 10,
+      "client_timeout_ms": 200,
+      "wall_time_s": 0.195,
+      "throughput_rps": 512.29,
+      "success_count": 84,
+      "error_count": 16,
+      "http_503_count": 16,
+      "timeout_count": 0,
+      "error_rate_pct": 16.0,
+      "latency_all_ms": {
+        "min": 6.91,
+        "mean": 16.47,
+        "p50": 15.09,
+        "p95": 25.64,
+        "p99": 31.19,
+        "max": 36.07
+      },
+      "latency_success_only_ms": {
+        "mean": 16.24,
+        "p50": 14.86,
+        "p95": 25.93,
+        "p99": 31.98
+      }
+    }
+  ]
+}
