@@ -1,0 +1,5 @@
+web3>=7.0.0
+py-solc-x>=2.0.0
+eth-tester>=0.12.0b1
+py-evm>=0.10.0b1
+pytest>=8.0.0

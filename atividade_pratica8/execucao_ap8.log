@@ -1,0 +1,64 @@
+==============================================================================
+ATIVIDADE PRATICA 8 (AP8) - SMART CONTRACT & INTEGRACAO LOCAL (EVM)
+Contrato: DocumentRegistry.sol | Compilador: solc 0.8.20
+==============================================================================
+
+[1] IMPLANTACAO EM NO EVM LOCAL (PyEVMBackend)
+  - Endereco do Contrato : 0xF2E246BB76DF876Cef8b38ae84130F4F55De395b
+  - Hash Tx Implantacao  : 0xe133ac365249c90f0b42ac88da7558e9de7e7cbda257aa95cfcb17bc32d072d0
+  - Bloco de Implantacao : 1
+  - Owner (Deployer)     : 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf
+  - Conta Alice (Usuaria): 0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF
+  - Conta Bob (Terceiro) : 0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69
+  - Gas Usado no Deploy  : 602478
+
+[2] TRANSACAO DE ESCRITA: registerDocument(bytes32)
+  - Conteudo Off-Chain   : 'Diploma-Mestrado-Sistemas-Distribuidos-2026-Registro-0001'
+  - Hash On-Chain (keccak): 0x7e9a0969041dfd59463bb3ea52edbe7b310b9556cda703a3aec294d9132ff68b
+  - Hash da Transacao    : 0xf8bfb89b0cb305d66b6c19a2b30dfcf78e60fc9cf4184febe40ea78dc9eac9d3
+  - Numero do Bloco      : 2
+  - Status da Execucao   : 1 (1 = Sucesso)
+  - Gas Usado (Registro) : 113574
+
+[3] CONSULTA DE ESTADO (VIEW): verifyDocument(bytes32)
+  - exists               : True
+  - isValid              : True
+  - timestamp (Bloco)    : 1793976030
+  - registrant           : 0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF
+  - totalRegistered      : 1
+  - Custo de Gas On-Chain: 0 (leitura local via eth_call)
+
+[4] EVENTO OBSERVADO NO RECEIPT: DocumentRegistered
+  - Evento               : DocumentRegistered
+  - Endereco Emissor     : 0xF2E246BB76DF876Cef8b38ae84130F4F55De395b
+  - Bloco / LogIndex     : Bloco 2 / Log #0
+  - arg docHash          : 0x7e9a0969041dfd59463bb3ea52edbe7b310b9556cda703a3aec294d9132ff68b
+  - arg registrant       : 0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF
+  - arg timestamp        : 1793976030
+
+[5] TESTES DE REVERT (REGRAS DE VALIDACAO E CONTROLE DE ACESSO)
+  - Tentativa 5A (Registro Duplicado por Bob):
+    -> REVERT CONFIRMADO : TransactionFailed - execution reverted: Document already registered
+  - Tentativa 5B (Revogacao Sem Permissao por Bob != Owner):
+    -> REVERT CONFIRMADO : TransactionFailed - execution reverted: Caller is not the owner
+
+[6] TRANSACAO DE ESCRITA (OWNER): revokeDocument(bytes32)
+  - Hash da Transacao    : 0x413b27a8d50eeff5c7283b4cdbb693b7da522e5d9b81779d679f3a8e76d2a996
+  - Numero do Bloco      : 3
+  - Gas Usado (Revogacao): 29714
+  - Evento Emitido       : DocumentRevoked (revokedBy=0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf, ts=1793976031)
+
+[7] ESTADO FINAL APOS REVOGACAO: verifyDocument(bytes32)
+  - exists               : True
+  - isValid              : False (Alterado de True para False)
+  - timestamp original   : 1793976030 (Preservado)
+  - registrant original  : 0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF (Preservado)
+
+==============================================================================
+RESUMO DE CONSUMO DE GAS POR OPERACAO
+------------------------------------------------------------------------------
+  1. Deploy DocumentRegistry        :   602478 gas (Transacao On-Chain)
+  2. registerDocument (escrita SSTORE): 113574 gas (Transacao On-Chain)
+  3. revokeDocument (atualizacao)   :    29714 gas (Transacao On-Chain)
+  4. verifyDocument (view / eth_call):        0 gas (Leitura Local Off-Chain)
+==============================================================================
