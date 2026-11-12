@@ -1,0 +1,336 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}/trabalho_pratico1",
+    "shell": {
+      "executable": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "label": "🚀 [DEMO] 1. Subir Todo o Sistema (Estufa TP1)",
+      "dependsOn": [
+        "1. Broker MQTT (:1883)",
+        "2. Middleware XML-RPC (:9000)",
+        "3. Controlador ctrl_1 (:8001)",
+        "4. Controlador ctrl_2 (:8002)",
+        "5. Controlador ctrl_3 (:8003)",
+        "6. Atuador (Cache LRU)",
+        "7. Sensor (Modo Normal)",
+        "8. Cliente Interativo"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "detail": "Abre todos os 8 terminais divididos (Split Screen) usando PowerShell na ordem de dependência."
+    },
+    {
+      "label": "1. Broker MQTT (:1883)",
+      "type": "shell",
+      "command": "& '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.broker_local",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "1_infra",
+        "clear": true
+      }
+    },
+    {
+      "label": "2. Middleware XML-RPC (:9000)",
+      "type": "shell",
+      "command": "Start-Sleep -Milliseconds 400; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.middleware_server",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "1_infra",
+        "clear": true
+      }
+    },
+    {
+      "label": "3. Controlador ctrl_1 (:8001)",
+      "type": "shell",
+      "command": "Start-Sleep -Milliseconds 1000; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.controlador --id ctrl_1 --port 8001 --data data_ctrl_1.json",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "2_replicas",
+        "clear": true
+      }
+    },
+    {
+      "label": "4. Controlador ctrl_2 (:8002)",
+      "type": "shell",
+      "command": "Start-Sleep -Milliseconds 1100; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "2_replicas",
+        "clear": true
+      }
+    },
+    {
+      "label": "5. Controlador ctrl_3 (:8003)",
+      "type": "shell",
+      "command": "Start-Sleep -Milliseconds 1200; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "2_replicas",
+        "clear": true
+      }
+    },
+    {
+      "label": "6. Atuador (Cache LRU)",
+      "type": "shell",
+      "command": "Start-Sleep -Milliseconds 1600; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.atuador",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "3_io",
+        "clear": true
+      }
+    },
+    {
+      "label": "7. Sensor (Modo Normal)",
+      "type": "shell",
+      "command": "Start-Sleep -Milliseconds 2000; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.sensor --modo normal",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "3_io",
+        "clear": true
+      }
+    },
+    {
+      "label": "8. Cliente Interativo",
+      "type": "shell",
+      "command": "Start-Sleep -Milliseconds 2300; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.cliente",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "new",
+        "group": "4_cliente",
+        "clear": true
+      }
+    },
+    {
+      "label": "🔥 [ETAPA 3] Sensor: Modo Seco (Disparar Bomba + Deduplicação LRU)",
+      "type": "shell",
+      "command": "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'estufa\\.sensor' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 300; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.sensor --modo seco",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "3_io",
+        "clear": true
+      },
+      "detail": "Para o sensor anterior automaticamente e inicia em modo seco (umidade 10%-29% < 30%)."
+    },
+    {
+      "label": "🌡️ [ETAPA 3B] Sensor: Modo Quente (Disparar Exaustor + Deduplicação LRU)",
+      "type": "shell",
+      "command": "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'estufa\\.sensor' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 300; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.sensor --modo quente",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "3_io",
+        "clear": true
+      },
+      "detail": "Para o sensor anterior automaticamente e inicia em modo quente (temperatura 36°C-42°C > 35°C)."
+    },
+    {
+      "label": "💥 [ETAPA 4] Derrubar Ctrl 3 (Simular Falha por Parada / Crash)",
+      "type": "shell",
+      "command": "Get-NetTCPConnection -LocalPort 8003 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Write-Host '[ETAPA 4] Controlador ctrl_3 (porta 8003) encerrado para teste de Quórum 2/3!' -ForegroundColor Yellow",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "detail": "Encerra o processo do ctrl_3 na porta 8003 para demonstrar quórum 2/3."
+    },
+    {
+      "label": "🔄 [ETAPA 5] Recuperar Ctrl 3 (State Sync via Middleware)",
+      "type": "shell",
+      "command": "Get-NetTCPConnection -LocalPort 8003 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 300; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "2_replicas",
+        "clear": true
+      },
+      "detail": "Reinicia ctrl_3 sincronizando estado inicial via Middleware XML-RPC (:9000)."
+    },
+    {
+      "label": "🎭 [ETAPA 6] Reiniciar Ctrl 2 em Modo Bizantino (--byzantino)",
+      "type": "shell",
+      "command": "Get-NetTCPConnection -LocalPort 8002 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 300; & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' -u -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json --byzantino",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "2_replicas",
+        "clear": true
+      },
+      "detail": "Substitui automaticamente o ctrl_2 na porta 8002 por uma instância em modo --byzantino."
+    },
+    {
+      "label": "🧹 [RESET] Parar Serviços e Limpar Estado (data_ctrl_*.json)",
+      "type": "shell",
+      "command": "& '${workspaceFolder}/trabalho_pratico1/scripts/reset_demo.ps1'",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "detail": "Encerra todos os processos da estufa nas portas 1883, 8001..8003, 9000 e apaga data_ctrl_*.json."
+    },
+    {
+      "label": "✅ [VALIDAÇÃO] Rodar Testes Unitários (Pytest) + Smoke Test E2E",
+      "type": "shell",
+      "command": "& '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/pytest.exe' tests/ -v -p no:cacheprovider; if ($LASTEXITCODE -eq 0) { & '${workspaceFolder}/trabalho_pratico1/.venv/Scripts/python.exe' scripts/validate_e2e.py }",
+      "options": {
+        "cwd": "${workspaceFolder}/trabalho_pratico1",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "clear": true
+      },
+      "detail": "Executa os 58 testes unitários e o Smoke Test End-to-End com processos reais."
+    }
+  ]
+}

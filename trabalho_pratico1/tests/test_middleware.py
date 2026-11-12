@@ -327,3 +327,34 @@ class TestVerificarSaude:
 
         for ctrl_id, status in saude.items():
             assert status.startswith("OFFLINE")
+
+    def test_quorum_2_de_3_um_travado_timeout(self):
+        """Quando 1 réplica bloqueia além do timeout (ex: SYN retry no Windows), o quórum 2/3 ainda vence."""
+        import time
+        mw = Middleware(timeout=0.2)
+
+        def proxy_factory(ctrl):
+            m = MagicMock()
+            if ctrl["id"] == "ctrl_3":
+                def lento():
+                    time.sleep(2.0)
+                    return {}
+                m.obter_estado.side_effect = lento
+            else:
+                m.obter_estado.return_value = {
+                    "temperatura": 25.0,
+                    "umidade_solo": 50.0,
+                    "bomba_ligada": False,
+                    "exaustor_ligado": False,
+                    "sensor_timestamp": 100.0,
+                    "ultima_atualizacao": 100.0,
+                    "controlador_id": ctrl["id"],
+                }
+            return m
+
+        with patch.object(mw, "_criar_proxy", side_effect=proxy_factory):
+            estado = mw.obter_estado()
+
+        assert estado["temperatura"] == 25.0
+        assert estado["bomba_ligada"] is False
+

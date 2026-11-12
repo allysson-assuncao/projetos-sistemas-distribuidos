@@ -20,6 +20,19 @@ class ErroQuorum(Exception):
     pass
 
 
+class _TimeoutTransport(xmlrpc.client.Transport):
+    """Transporte XML-RPC com timeout explícito de socket para evitar bloqueio no Windows."""
+
+    def __init__(self, timeout: float):
+        super().__init__()
+        self._timeout = timeout
+
+    def make_connection(self, host):
+        conn = super().make_connection(host)
+        conn.timeout = self._timeout
+        return conn
+
+
 class Middleware:
     """Coordena chamadas remotas ao cluster de controladores e apura o quórum."""
 
@@ -30,7 +43,11 @@ class Middleware:
     def _criar_proxy(self, controlador: dict) -> xmlrpc.client.ServerProxy:
         """Instancia um proxy XML-RPC para o controlador informado."""
         url = f"http://{controlador['host']}:{controlador['port']}"
-        return xmlrpc.client.ServerProxy(url, allow_none=True)
+        return xmlrpc.client.ServerProxy(
+            url,
+            transport=_TimeoutTransport(self._timeout),
+            allow_none=True,
+        )
 
     def _chamar_controlador(self, controlador: dict, metodo: str, *args) -> Any:
         """Executa uma chamada XML-RPC individual em um controlador."""
@@ -46,19 +63,30 @@ class Middleware:
         resultados = []
         erros = []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self._controladores)) as executor:
-            futures = {
-                executor.submit(self._chamar_controlador, ctrl, metodo, *args): ctrl
-                for ctrl in self._controladores
-            }
-            for future in concurrent.futures.as_completed(futures, timeout=self._timeout + 1):
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(self._controladores))
+        futures = {
+            executor.submit(self._chamar_controlador, ctrl, metodo, *args): ctrl
+            for ctrl in self._controladores
+        }
+        processados = set()
+        try:
+            for future in concurrent.futures.as_completed(futures, timeout=self._timeout + 0.5):
+                processados.add(future)
                 ctrl = futures[future]
                 try:
-                    resultado = future.result(timeout=self._timeout)
+                    resultado = future.result(timeout=0.1)
                     resultados.append((ctrl["id"], resultado))
                 except Exception as e:
                     erros.append((ctrl["id"], str(e)))
                     print(f"[MIDDLEWARE] Controlador {ctrl['id']} indisponível: {e}")
+        except (concurrent.futures.TimeoutError, TimeoutError):
+            for future, ctrl in futures.items():
+                if future not in processados:
+                    msg = f"Timeout após {self._timeout}s"
+                    erros.append((ctrl["id"], msg))
+                    print(f"[MIDDLEWARE] Controlador {ctrl['id']} indisponível: {msg}")
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
         if not resultados:
             raise ErroQuorum(
