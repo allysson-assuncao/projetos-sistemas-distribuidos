@@ -1,0 +1,2245 @@
+==============================================================================================================
+TRABALHO PRÁTICO 1 — CONTROLE AUTOMATIZADO DE ESTUFA AGRÍCOLA DISTRIBUÍDA
+ARQUIVO CONSOLIDADO DE CÓDIGO FONTE E CONFIGURAÇÕES (NÚCLEO DO SISTEMA)
+==============================================================================================================
+
+Projeto           : Sistemas Distribuídos — Trabalho Prático 1
+Diretório Raiz    : C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1
+Arquivo de Saída  : C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\trabalho_pratico1_codigo_completo.txt
+Total de Arquivos : 11
+Total de Linhas   : 2053 linhas originais
+
+GUIA DE REFERÊNCIA E ESTRUTURA:
+  * Cada arquivo possui bloco de cabeçalho com metadados detalhados, delimitadores claros e rodapé.
+  * As referências indicam a linha inicial e final no arquivo original e a faixa neste arquivo .txt.
+  * Cada linha de código original está prefixada com seu respectivo número de linha: [  Linha | Código ].
+
+--------------------------------------------------------------------------------------------------------------
+SUMÁRIO / ÍNDICE DE ARQUIVOS CONSOLIDADOS
+--------------------------------------------------------------------------------------------------------------
+| ID | Arquivo Relativo                 | Linhas Originais | Faixa no .txt        | Descrição Resumida         |
+|----|----------------------------------|------------------|----------------------|----------------------------|
+|  1 | estufa/__init__.py               | 1-1 (1 l.)       | L00039 - L00051      | Inicializador do pacote es |
+|  2 | estufa/config.py                 | 1-67 (67 l.)     | L00054 - L00132      | Constantes globais, portas |
+|  3 | estufa/middleware.py             | 1-318 (318 l.)   | L00135 - L00464      | ClusterMiddleware, proxy X |
+|  4 | estufa/broker_local.py           | 1-336 (336 l.)   | L00467 - L00814      | Broker MQTT v3.1.1 local e |
+|  5 | estufa/sensor.py                 | 1-170 (170 l.)   | L00817 - L00998      | Simulador contínuo de temp |
+|  6 | estufa/atuador.py                | 1-96 (96 l.)     | L01001 - L01108      | Controlador de atuadores ( |
+|  7 | estufa/controlador.py            | 1-911 (911 l.)   | L01111 - L02033      | Controlador de processo: e |
+|  8 | estufa/cliente.py                | 1-130 (130 l.)   | L02036 - L02177      | CLI interativa de monitora |
+|  9 | requirements.txt                 | 1-3 (3 l.)       | L02180 - L02194      | Dependências Python do pro |
+| 10 | docker-compose.yml               | 1-16 (16 l.)     | L02197 - L02224      | Orquestração do broker Ecl |
+| 11 | mosquitto/mosquitto.conf         | 1-5 (5 l.)       | L02227 - L02243      | Arquivo de configuração de |
+--------------------------------------------------------------------------------------------------------------
+
+==============================================================================================================
+INÍCIO DOS CÓDIGOS E ARQUIVOS FONTE
+==============================================================================================================
+
+##############################################################################################################
+# ARQUIVO [01/11]: estufa/__init__.py
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\estufa\__init__.py
+# CATEGORIA / GRUPO: 1. NÚCLEO DO SISTEMA DISTRIBUÍDO (MÓDULOS PYTHON EM estufa/)
+# DESCRIÇÃO: Inicializador do pacote estufa
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 1
+# TOTAL DE LINHAS NO ORIGINAL: 1 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: estufa/__init__.py (Linha Original 1) >>>
+   1 | # estufa package
+<<< FIM DO ARQUIVO: estufa/__init__.py (Linha Original 1) <<<
+##############################################################################################################
+
+
+##############################################################################################################
+# ARQUIVO [02/11]: estufa/config.py
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\estufa\config.py
+# CATEGORIA / GRUPO: 1. NÚCLEO DO SISTEMA DISTRIBUÍDO (MÓDULOS PYTHON EM estufa/)
+# DESCRIÇÃO: Constantes globais, portas, tópicos MQTT e thresholds de controle
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 67
+# TOTAL DE LINHAS NO ORIGINAL: 67 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: estufa/config.py (Linha Original 1) >>>
+   1 | """
+   2 | config.py — Parâmetros globais do sistema de controle da estufa agrícola.
+   3 | 
+   4 | Centraliza tópicos MQTT, topologia do cluster XML-RPC de controladores,
+   5 | limiares de acionamento e parâmetros de eleição e consenso.
+   6 | """
+   7 | 
+   8 | # Configuração do Broker MQTT v3.1.1 (camada IoT: sensores <-> controladores <-> atuador)
+   9 | MQTT_HOST = "127.0.0.1"
+  10 | MQTT_PORT = 1883
+  11 | MQTT_KEEPALIVE = 60
+  12 | 
+  13 | # Tópicos MQTT divididos por fluxo de telemetria, comando oficial e feedback
+  14 | TOPIC_TEMPERATURA = "estufa/sensores/temperatura"
+  15 | TOPIC_UMIDADE_SOLO = "estufa/sensores/umidade_solo"
+  16 | TOPIC_ATUADOR_BOMBA = "estufa/atuadores/bomba"
+  17 | TOPIC_ATUADOR_EXAUSTOR = "estufa/atuadores/exaustor"
+  18 | TOPIC_STATUS_BOMBA = "estufa/status/bomba"
+  19 | TOPIC_STATUS_EXAUSTOR = "estufa/status/exaustor"
+  20 | 
+  21 | # Topologia do cluster distribuído (Middleware lógico embarcado via XML-RPC direto).
+  22 | # O 'rank' define a prioridade na eleição de líder pelo algoritmo Bully (1 < 2 < 3).
+  23 | MAPA_CONTROLADORES = {
+  24 |     1: {"id": "ctrl_1", "rank": 1, "host": "127.0.0.1", "port": 8001, "data_file": "data_ctrl_1.json"},
+  25 |     2: {"id": "ctrl_2", "rank": 2, "host": "127.0.0.1", "port": 8002, "data_file": "data_ctrl_2.json"},
+  26 |     3: {"id": "ctrl_3", "rank": 3, "host": "127.0.0.1", "port": 8003, "data_file": "data_ctrl_3.json"},
+  27 | }
+  28 | 
+  29 | CONTROLADORES = [
+  30 |     (cfg["host"], cfg["port"]) for cfg in MAPA_CONTROLADORES.values()
+  31 | ]
+  32 | 
+  33 | 
+  34 | def obter_config_controlador(identificador: str | int) -> dict:
+  35 |     """Resolve a configuração de um controlador pelo número (1..3) ou ID ('ctrl_1'..'ctrl_3')."""
+  36 |     if isinstance(identificador, bool):
+  37 |         raise ValueError(f"Identificador de controlador inválido: {identificador}")
+  38 | 
+  39 |     if isinstance(identificador, int):
+  40 |         chave = identificador
+  41 |     elif isinstance(identificador, str):
+  42 |         texto = identificador.strip().lower()
+  43 |         if texto.isdigit():
+  44 |             chave = int(texto)
+  45 |         elif texto.startswith("ctrl_") and texto[5:].isdigit():
+  46 |             chave = int(texto[5:])
+  47 |         else:
+  48 |             raise ValueError(f"Identificador de controlador inválido: '{identificador}'")
+  49 |     else:
+  50 |         raise ValueError(f"Identificador de controlador inválido: {identificador!r}")
+  51 | 
+  52 |     if chave not in MAPA_CONTROLADORES:
+  53 |         raise ValueError(f"Controlador '{identificador}' fora do mapa permitido (1..3).")
+  54 | 
+  55 |     return dict(MAPA_CONTROLADORES[chave])
+  56 | 
+  57 | 
+  58 | # Faixas de histerese ambiental avaliadas pelos controladores antes do consenso
+  59 | TEMP_MAX_CELSIUS = 35.0      # Acima: liga o exaustor
+  60 | TEMP_MIN_CELSIUS = 15.0      # Abaixo: desliga o exaustor
+  61 | UMIDADE_MIN_PERCENT = 30.0   # Abaixo: liga a bomba de irrigação
+  62 | UMIDADE_MAX_PERCENT = 70.0   # Acima: desliga a bomba de irrigação
+  63 | 
+  64 | # Timeouts explícitos de RPC e intervalo de heartbeat para detecção rápida de queda
+  65 | TIMEOUT_RPC_SEGUNDOS = 1.5
+  66 | INTERVALO_HEARTBEAT_SEGUNDOS = 2.0
+  67 | QUORUM_MINIMO = 2
+<<< FIM DO ARQUIVO: estufa/config.py (Linha Original 67) <<<
+##############################################################################################################
+
+
+##############################################################################################################
+# ARQUIVO [03/11]: estufa/middleware.py
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\estufa\middleware.py
+# CATEGORIA / GRUPO: 1. NÚCLEO DO SISTEMA DISTRIBUÍDO (MÓDULOS PYTHON EM estufa/)
+# DESCRIÇÃO: ClusterMiddleware, proxy XML-RPC cliente e consenso dinâmico
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 318
+# TOTAL DE LINHAS NO ORIGINAL: 318 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: estufa/middleware.py (Linha Original 1) >>>
+   1 | """
+   2 | middleware.py — Camada lógica distribuída de comunicação RPC, failover e consenso.
+   3 | 
+   4 | Módulo utilizado pelo Cliente (para descoberta de líder, failover automático
+   5 | e leitura por consenso) e pelos Controladores (para comunicação P2P, eleição
+   6 | e apuração de quórum entre as réplicas do cluster).
+   7 | """
+   8 | 
+   9 | import collections
+  10 | import concurrent.futures
+  11 | import json
+  12 | import socket
+  13 | import xmlrpc.client
+  14 | from typing import Any
+  15 | from estufa import config
+  16 | 
+  17 | 
+  18 | class ErroQuorum(Exception):
+  19 |     """Exceção lançada quando não há consenso ou controladores ativos suficientes."""
+  20 | 
+  21 | 
+  22 | # Transporte XML-RPC com timeout explícito para evitar travamento TCP longo no Windows
+  23 | class _TimeoutTransport(xmlrpc.client.Transport):
+  24 |     """Transporte XML-RPC com timeout explícito de socket para evitar travamentos no Windows."""
+  25 | 
+  26 |     def __init__(self, timeout: float):
+  27 |         super().__init__()
+  28 |         self._timeout = timeout
+  29 | 
+  30 |     def make_connection(self, host):
+  31 |         conn = super().make_connection(host)
+  32 |         conn.timeout = self._timeout
+  33 |         return conn
+  34 | 
+  35 | 
+  36 | def criar_proxy_rpc(
+  37 |     host: str,
+  38 |     port: int,
+  39 |     timeout: float = config.TIMEOUT_RPC_SEGUNDOS,
+  40 | ) -> xmlrpc.client.ServerProxy:
+  41 |     """Cria um proxy XML-RPC com timeout de socket explícito para (host, port)."""
+  42 |     url = f"http://{host}:{port}"
+  43 |     return xmlrpc.client.ServerProxy(
+  44 |         url,
+  45 |         transport=_TimeoutTransport(timeout),
+  46 |         allow_none=True,
+  47 |     )
+  48 | 
+  49 | 
+  50 | def _normalizar_lista_controladores(controladores: list | None) -> list[dict]:
+  51 |     """Converte entradas (tuplas ou dicts) para lista padronizada de metadados do cluster."""
+  52 |     itens = controladores if controladores is not None else config.CONTROLADORES
+  53 |     mapa_por_porta = {cfg["port"]: cfg for cfg in config.MAPA_CONTROLADORES.values()}
+  54 | 
+  55 |     normalizados = []
+  56 |     for idx, item in enumerate(itens, start=1):
+  57 |         if isinstance(item, dict):
+  58 |             port = int(item["port"])
+  59 |             base = mapa_por_porta.get(port, {})
+  60 |             normalizados.append({
+  61 |                 "id": item.get("id", base.get("id", f"ctrl_{idx}")),
+  62 |                 "rank": int(item.get("rank", base.get("rank", idx))),
+  63 |                 "host": item.get("host", "127.0.0.1"),
+  64 |                 "port": port,
+  65 |             })
+  66 |         else:
+  67 |             host, port = item
+  68 |             port = int(port)
+  69 |             base = mapa_por_porta.get(port, {})
+  70 |             normalizados.append({
+  71 |                 "id": base.get("id", f"ctrl_{idx}"),
+  72 |                 "rank": int(base.get("rank", idx)),
+  73 |                 "host": host,
+  74 |                 "port": port,
+  75 |             })
+  76 |     return normalizados
+  77 | 
+  78 | 
+  79 | class ClusterMiddleware:
+  80 |     """
+  81 |     Camada lógica do Middleware para comunicação direta Cliente <-> Controladores
+  82 |     e cálculo de consenso dinâmico sobre réplicas ativas.
+  83 |     """
+  84 | 
+  85 |     def __init__(
+  86 |         self,
+  87 |         controladores: list | None = None,
+  88 |         timeout: float | None = None,
+  89 |     ):
+  90 |         self._controladores = _normalizar_lista_controladores(controladores)
+  91 |         # Cliente usa janela maior que o timeout entre pares (coleta + commit no líder)
+  92 |         self._timeout = float(
+  93 |             timeout if timeout is not None else config.TIMEOUT_RPC_SEGUNDOS * 2.5
+  94 |         )
+  95 |         self._lider_atual: dict | None = None
+  96 | 
+  97 |     @property
+  98 |     def controladores(self) -> list[dict]:
+  99 |         """Lista dos nós configurados no cluster."""
+ 100 |         return list(self._controladores)
+ 101 | 
+ 102 |     def _criar_proxy(self, controlador: dict | tuple[str, int]) -> xmlrpc.client.ServerProxy:
+ 103 |         """Instancia um proxy XML-RPC para o controlador informado."""
+ 104 |         if isinstance(controlador, dict):
+ 105 |             host, port = controlador["host"], int(controlador["port"])
+ 106 |         else:
+ 107 |             host, port = controlador[0], int(controlador[1])
+ 108 |         return criar_proxy_rpc(host, port, timeout=self._timeout)
+ 109 | 
+ 110 |     @staticmethod
+ 111 |     def _normalizar_estado(estado: Any) -> str:
+ 112 |         """
+ 113 |         Normaliza o estado removendo metadados voláteis (timestamp/lider_id) para
+ 114 |         comparar apenas os dados oficiais de domínio durante a votação.
+ 115 |         """
+ 116 |         if not isinstance(estado, dict):
+ 117 |             return str(estado)
+ 118 | 
+ 119 |         chaves_dominio = ("temperatura", "umidade", "bomba_ligada", "exaustor_ligado")
+ 120 |         if any(k in estado for k in chaves_dominio):
+ 121 |             canonico = {
+ 122 |                 "temperatura": estado.get("temperatura"),
+ 123 |                 "umidade": estado.get("umidade"),
+ 124 |                 "bomba_ligada": bool(estado.get("bomba_ligada", False)),
+ 125 |                 "exaustor_ligado": bool(estado.get("exaustor_ligado", False)),
+ 126 |             }
+ 127 |             return json.dumps(canonico, sort_keys=True)
+ 128 | 
+ 129 |         copia = {
+ 130 |             k: v
+ 131 |             for k, v in estado.items()
+ 132 |             if k not in ("ultima_atualizacao", "controlador_id", "lider_id", "byzantino")
+ 133 |         }
+ 134 |         return json.dumps(copia, sort_keys=True)
+ 135 | 
+ 136 |     # Consenso dinâmico: 3 nós (maioria 2/3 mascara 1 bizantino), 2 nós (2/2), 1 nó (1/1 degradado)
+ 137 |     @classmethod
+ 138 |     def calcular_consenso(
+ 139 |         cls,
+ 140 |         respostas: list[dict],
+ 141 |         total_ativos: int | None = None,
+ 142 |     ) -> dict:
+ 143 |         """
+ 144 |         Aplica quórum dinâmico sobre as respostas recebidas dos nós ativos:
+ 145 |         - 3 ativos: maioria (>= 2 votos) mascara 1 nó bizantino.
+ 146 |         - 2 ativos: exige concordância (2/2); divergência levanta ErroQuorum.
+ 147 |         - 1 ativo: modo degradado (1/1) preserva disponibilidade do sistema.
+ 148 |         - 0 ativos: levanta ErroQuorum.
+ 149 |         """
+ 150 |         if not respostas:
+ 151 |             raise ErroQuorum("ERRO_QUORUM: Nenhum controlador ativo respondeu.")
+ 152 | 
+ 153 |         contagem = collections.Counter(cls._normalizar_estado(r) for r in respostas)
+ 154 |         chave_vencedora, votos = contagem.most_common(1)[0]
+ 155 |         n_respostas = len(respostas) if total_ativos is None else max(len(respostas), total_ativos)
+ 156 | 
+ 157 |         if n_respostas >= 3 and votos < 2:
+ 158 |             raise ErroQuorum(
+ 159 |                 f"ERRO_QUORUM: Divergência total entre os {len(respostas)} controladores ativos."
+ 160 |             )
+ 161 |         if n_respostas == 2 and votos < 2:
+ 162 |             raise ErroQuorum(
+ 163 |                 "ERRO_QUORUM: Conflito entre os 2 controladores ativos (sem desempate)."
+ 164 |             )
+ 165 | 
+ 166 |         for resposta in respostas:
+ 167 |             if cls._normalizar_estado(resposta) == chave_vencedora:
+ 168 |                 return dict(resposta)
+ 169 | 
+ 170 |         raise ErroQuorum("ERRO_QUORUM: Falha inesperada ao apurar consenso.")
+ 171 | 
+ 172 |     def _ordenar_candidatos(self) -> list[dict]:
+ 173 |         """Prioriza o último líder conhecido e, em seguida, os nós de maior rank."""
+ 174 |         por_rank = sorted(self._controladores, key=lambda c: c["rank"], reverse=True)
+ 175 |         if not self._lider_atual:
+ 176 |             return por_rank
+ 177 |         lider_id = self._lider_atual.get("id")
+ 178 |         restantes = [c for c in por_rank if c["id"] != lider_id]
+ 179 |         return [self._lider_atual] + restantes
+ 180 | 
+ 181 |     def _atualizar_lider_cache(self, resposta: Any) -> None:
+ 182 |         """Atualiza o cache de líder local a partir de respostas retornadas pelo cluster."""
+ 183 |         if not isinstance(resposta, dict):
+ 184 |             return
+ 185 |         lider_id = resposta.get("lider_id")
+ 186 |         if not lider_id:
+ 187 |             return
+ 188 |         for ctrl in self._controladores:
+ 189 |             if ctrl["id"] == lider_id:
+ 190 |                 self._lider_atual = ctrl
+ 191 |                 return
+ 192 | 
+ 193 |     # Comunicação direta Cliente -> Controladores com failover automático em queda ou timeout
+ 194 |     def _chamar_com_failover(self, metodo: str, *args) -> Any:
+ 195 |         """
+ 196 |         Executa uma chamada XML-RPC diretamente contra o líder ou réplica ativa,
+ 197 |         migrando automaticamente para o próximo controlador em caso de falha ou timeout.
+ 198 |         """
+ 199 |         erros = []
+ 200 |         for ctrl in self._ordenar_candidatos():
+ 201 |             try:
+ 202 |                 proxy = self._criar_proxy(ctrl)
+ 203 |                 func = getattr(proxy, metodo)
+ 204 |                 resposta = func(*args)
+ 205 |                 self._atualizar_lider_cache(resposta)
+ 206 |                 return resposta
+ 207 |             except xmlrpc.client.Fault as e:
+ 208 |                 if "ERRO_QUORUM" in str(e.faultString):
+ 209 |                     raise ErroQuorum(e.faultString) from e
+ 210 |                 erros.append((ctrl["id"], e.faultString))
+ 211 |                 print(f"[MIDDLEWARE] Falha lógica em {ctrl['id']}: {e.faultString}")
+ 212 |             except (
+ 213 |                 ConnectionRefusedError,
+ 214 |                 TimeoutError,
+ 215 |                 socket.timeout,
+ 216 |                 OSError,
+ 217 |                 xmlrpc.client.ProtocolError,
+ 218 |             ) as e:
+ 219 |                 erros.append((ctrl["id"], str(e)))
+ 220 |                 if self._lider_atual and self._lider_atual["id"] == ctrl["id"]:
+ 221 |                     self._lider_atual = None
+ 222 |                 print(
+ 223 |                     f"[MIDDLEWARE] Failover: {ctrl['id']} ({ctrl['host']}:{ctrl['port']}) "
+ 224 |                     f"indisponível ({e}). Tentando próximo controlador..."
+ 225 |                 )
+ 226 | 
+ 227 |         raise ErroQuorum(f"ERRO_QUORUM: Nenhum controlador acessível. Detalhes: {erros}")
+ 228 | 
+ 229 |     # Consulta paralela a todas as réplicas ativas para validar estado oficial por consenso
+ 230 |     def obter_estado(self) -> dict:
+ 231 |         """
+ 232 |         Consulta diretamente todos os controladores alcançáveis em paralelo e valida
+ 233 |         o estado oficial por consenso dinâmico (mascarando eventuais nós bizantinos).
+ 234 |         """
+ 235 |         if not self._controladores:
+ 236 |             raise ErroQuorum("ERRO_QUORUM: Nenhum controlador configurado.")
+ 237 | 
+ 238 |         respostas: list[dict] = []
+ 239 |         executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(self._controladores))
+ 240 |         futures = {
+ 241 |             executor.submit(lambda c: self._criar_proxy(c).obter_estado(), ctrl): ctrl
+ 242 |             for ctrl in self._controladores
+ 243 |         }
+ 244 |         try:
+ 245 |             for future in concurrent.futures.as_completed(futures, timeout=self._timeout + 0.3):
+ 246 |                 ctrl = futures[future]
+ 247 |                 try:
+ 248 |                     resp = future.result(timeout=0.1)
+ 249 |                     if isinstance(resp, dict):
+ 250 |                         respostas.append(resp)
+ 251 |                 except Exception as e:
+ 252 |                     print(f"[MIDDLEWARE] {ctrl['id']} indisponível na leitura: {e}")
+ 253 |         except (concurrent.futures.TimeoutError, TimeoutError):
+ 254 |             print("[MIDDLEWARE] Timeout aguardando réplicas lentas na consulta de estado.")
+ 255 |         finally:
+ 256 |             executor.shutdown(wait=False, cancel_futures=True)
+ 257 | 
+ 258 |         oficial = self.calcular_consenso(respostas)
+ 259 |         self._atualizar_lider_cache(oficial)
+ 260 |         return oficial
+ 261 | 
+ 262 |     def comandar_bomba(self, ligar: bool) -> dict:
+ 263 |         """Envia comando booleano da bomba diretamente ao cluster com failover automático."""
+ 264 |         if not isinstance(ligar, bool):
+ 265 |             raise ValueError("O parâmetro 'ligar' deve ser booleano (True ou False).")
+ 266 |         return self._chamar_com_failover("comandar_bomba", ligar)
+ 267 | 
+ 268 |     def comandar_exaustor(self, ligar: bool) -> dict:
+ 269 |         """Envia comando booleano do exaustor diretamente ao cluster com failover automático."""
+ 270 |         if not isinstance(ligar, bool):
+ 271 |             raise ValueError("O parâmetro 'ligar' deve ser booleano (True ou False).")
+ 272 |         return self._chamar_com_failover("comandar_exaustor", ligar)
+ 273 | 
+ 274 |     def verificar_saude(self) -> dict:
+ 275 |         """Verifica conectividade e papel (líder/seguidor) de cada controlador do cluster."""
+ 276 |         detalhes = {}
+ 277 |         ativos = 0
+ 278 |         votos_lider = []
+ 279 | 
+ 280 |         for ctrl in self._controladores:
+ 281 |             try:
+ 282 |                 proxy = self._criar_proxy(ctrl)
+ 283 |                 resp = proxy.ping()
+ 284 |                 ativos += 1
+ 285 |                 if isinstance(resp, dict) and resp.get("status") == "ok":
+ 286 |                     lider_id = resp.get("lider_id")
+ 287 |                     if lider_id:
+ 288 |                         votos_lider.append(lider_id)
+ 289 |                     papel = "LÍDER" if lider_id == ctrl["id"] else "seguidor"
+ 290 |                     detalhes[ctrl["id"]] = f"ok ({papel})"
+ 291 |                 elif "pong" in str(resp):
+ 292 |                     detalhes[ctrl["id"]] = "ok"
+ 293 |                 else:
+ 294 |                     detalhes[ctrl["id"]] = f"resposta inesperada: {resp}"
+ 295 |             except Exception as e:
+ 296 |                 detalhes[ctrl["id"]] = f"OFFLINE: {e}"
+ 297 | 
+ 298 |         lider_cluster = (
+ 299 |             collections.Counter(votos_lider).most_common(1)[0][0]
+ 300 |             if votos_lider
+ 301 |             else None
+ 302 |         )
+ 303 |         if lider_cluster:
+ 304 |             for ctrl in self._controladores:
+ 305 |                 if ctrl["id"] == lider_cluster:
+ 306 |                     self._lider_atual = ctrl
+ 307 |                     break
+ 308 | 
+ 309 |         return {
+ 310 |             "ativos": ativos,
+ 311 |             "total": len(self._controladores),
+ 312 |             "lider_id": lider_cluster,
+ 313 |             "detalhes": detalhes,
+ 314 |         }
+ 315 | 
+ 316 | 
+ 317 | # Alias de compatibilidade
+ 318 | Middleware = ClusterMiddleware
+<<< FIM DO ARQUIVO: estufa/middleware.py (Linha Original 318) <<<
+##############################################################################################################
+
+
+##############################################################################################################
+# ARQUIVO [04/11]: estufa/broker_local.py
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\estufa\broker_local.py
+# CATEGORIA / GRUPO: 1. NÚCLEO DO SISTEMA DISTRIBUÍDO (MÓDULOS PYTHON EM estufa/)
+# DESCRIÇÃO: Broker MQTT v3.1.1 local embarcado com suporte a QoS 0 e QoS 1
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 336
+# TOTAL DE LINHAS NO ORIGINAL: 336 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: estufa/broker_local.py (Linha Original 1) >>>
+   1 | """
+   2 | broker_local.py — Broker MQTT v3.1.1 local em Python.
+   3 | 
+   4 | Implementa o servidor TCP MQTT utilizado para a comunicação pub/sub entre
+   5 | sensores, controladores e atuadores usando a biblioteca padrão do Python.
+   6 | Suporta CONNECT/CONNACK, SUBSCRIBE/SUBACK, PUBLISH/PUBACK (QoS 0 e 1),
+   7 | PINGREQ/PINGRESP e DISCONNECT em localhost (127.0.0.1).
+   8 | """
+   9 | 
+  10 | import argparse
+  11 | import socket
+  12 | import threading
+  13 | from typing import Dict, List, Optional, Set
+  14 | from estufa import config
+  15 | 
+  16 | 
+  17 | def _codificar_remaining_length(tamanho: int) -> bytes:
+  18 |     """Codifica o campo Remaining Length no padrão varint do MQTT v3.1.1 (1 a 4 bytes)."""
+  19 |     if tamanho < 0 or tamanho > 268_435_455:
+  20 |         raise ValueError(f"Remaining length fora dos limites MQTT: {tamanho}")
+  21 |     saida = bytearray()
+  22 |     while True:
+  23 |         byte = tamanho % 128
+  24 |         tamanho //= 128
+  25 |         if tamanho > 0:
+  26 |             byte |= 0x80
+  27 |         saida.append(byte)
+  28 |         if tamanho == 0:
+  29 |             break
+  30 |     return bytes(saida)
+  31 | 
+  32 | 
+  33 | def _decodificar_remaining_length_bytes(dados: bytes) -> int:
+  34 |     """Decodifica varint MQTT (máximo 4 bytes) rejeitando pacotes corrompidos."""
+  35 |     multiplicador = 1
+  36 |     valor = 0
+  37 |     for idx, byte in enumerate(dados):
+  38 |         if idx >= 4:
+  39 |             raise ValueError("Remaining Length excede 4 bytes (pacote MQTT malformado)")
+  40 |         valor += (byte & 0x7F) * multiplicador
+  41 |         if (byte & 0x80) == 0:
+  42 |             return valor
+  43 |         multiplicador *= 128
+  44 |     raise ValueError("Remaining Length incompleto")
+  45 | 
+  46 | 
+  47 | class BrokerMQTTLocal:
+  48 |     """Servidor MQTT v3.1.1 enxuto com roteamento exato de tópicos e entrega QoS 0/1."""
+  49 | 
+  50 |     def __init__(self, host: str = "127.0.0.1", port: int = config.MQTT_PORT, silencioso: bool = False):
+  51 |         if isinstance(port, bool) or not isinstance(port, int) or not (0 <= port <= 65535):
+  52 |             raise ValueError(f"Porta inválida: {port}. Deve estar entre 0 e 65535.")
+  53 |         if not host or not isinstance(host, str):
+  54 |             raise ValueError("Host inválido.")
+  55 |         self.host = host
+  56 |         self.port = port
+  57 |         self.silencioso = silencioso
+  58 | 
+  59 |         self._sock_servidor: Optional[socket.socket] = None
+  60 |         self._rodando = threading.Event()
+  61 |         self._lock = threading.Lock()
+  62 |         self._assinaturas: Dict[str, Set[socket.socket]] = {}
+  63 |         self._clientes: Set[socket.socket] = set()
+  64 |         self._client_ids: Dict[socket.socket, str] = {}
+  65 |         self._thread_aceitacao: Optional[threading.Thread] = None
+  66 | 
+  67 |     def _log(self, msg: str) -> None:
+  68 |         if not self.silencioso:
+  69 |             print(msg, flush=True)
+  70 | 
+  71 |     def iniciar_em_background(self) -> int:
+  72 |         """Abre o socket TCP em thread daemon e retorna a porta vinculada."""
+  73 |         self._sock_servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  74 |         self._sock_servidor.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+  75 |         self._sock_servidor.bind((self.host, self.port))
+  76 |         self.port = self._sock_servidor.getsockname()[1]
+  77 |         self._sock_servidor.listen(64)
+  78 |         self._sock_servidor.settimeout(0.5)
+  79 |         self._rodando.set()
+  80 | 
+  81 |         self._thread_aceitacao = threading.Thread(
+  82 |             target=self._loop_aceitacao,
+  83 |             name="BrokerMQTT-Accept",
+  84 |             daemon=True,
+  85 |         )
+  86 |         self._thread_aceitacao.start()
+  87 |         self._log(f"[BROKER-MQTT] Ativo em {self.host}:{self.port} (MQTT v3.1.1 QoS 0/1)")
+  88 |         return self.port
+  89 | 
+  90 |     def servir_para_sempre(self) -> None:
+  91 |         """Mantém o broker ativo até receber Ctrl+C."""
+  92 |         self.iniciar_em_background()
+  93 |         try:
+  94 |             while self._rodando.is_set():
+  95 |                 self._rodando.wait(timeout=1.0)
+  96 |         except KeyboardInterrupt:
+  97 |             self._log("\n[BROKER-MQTT] Encerrando broker...")
+  98 |         finally:
+  99 |             self.parar()
+ 100 | 
+ 101 |     def parar(self) -> None:
+ 102 |         """Encerra o socket servidor e desconecta clientes ativos."""
+ 103 |         self._rodando.clear()
+ 104 |         if self._sock_servidor is not None:
+ 105 |             try:
+ 106 |                 self._sock_servidor.close()
+ 107 |             except OSError:
+ 108 |                 pass
+ 109 |             self._sock_servidor = None
+ 110 | 
+ 111 |         with self._lock:
+ 112 |             clientes = list(self._clientes)
+ 113 |             self._clientes.clear()
+ 114 |             self._assinaturas.clear()
+ 115 |             self._client_ids.clear()
+ 116 | 
+ 117 |         for cli in clientes:
+ 118 |             try:
+ 119 |                 cli.shutdown(socket.SHUT_RDWR)
+ 120 |             except OSError:
+ 121 |                 pass
+ 122 |             try:
+ 123 |                 cli.close()
+ 124 |             except OSError:
+ 125 |                 pass
+ 126 | 
+ 127 |         if self._thread_aceitacao is not None and self._thread_aceitacao.is_alive():
+ 128 |             self._thread_aceitacao.join(timeout=2.0)
+ 129 | 
+ 130 |     def _loop_aceitacao(self) -> None:
+ 131 |         while self._rodando.is_set() and self._sock_servidor is not None:
+ 132 |             try:
+ 133 |                 conn, addr = self._sock_servidor.accept()
+ 134 |             except socket.timeout:
+ 135 |                 continue
+ 136 |             except OSError:
+ 137 |                 break
+ 138 | 
+ 139 |             with self._lock:
+ 140 |                 self._clientes.add(conn)
+ 141 |             threading.Thread(
+ 142 |                 target=self._atender_cliente,
+ 143 |                 args=(conn, addr),
+ 144 |                 daemon=True,
+ 145 |             ).start()
+ 146 | 
+ 147 |     @staticmethod
+ 148 |     def _ler_exato(conn: socket.socket, n: int) -> Optional[bytes]:
+ 149 |         buf = bytearray()
+ 150 |         while len(buf) < n:
+ 151 |             try:
+ 152 |                 chunk = conn.recv(n - len(buf))
+ 153 |             except OSError:
+ 154 |                 return None
+ 155 |             if not chunk:
+ 156 |                 return None
+ 157 |             buf.extend(chunk)
+ 158 |         return bytes(buf)
+ 159 | 
+ 160 |     def _ler_remaining_length(self, conn: socket.socket) -> Optional[int]:
+ 161 |         multiplicador = 1
+ 162 |         valor = 0
+ 163 |         for _ in range(4):
+ 164 |             b = self._ler_exato(conn, 1)
+ 165 |             if b is None:
+ 166 |                 return None
+ 167 |             byte = b[0]
+ 168 |             valor += (byte & 0x7F) * multiplicador
+ 169 |             if (byte & 0x80) == 0:
+ 170 |                 return valor
+ 171 |             multiplicador *= 128
+ 172 |         raise ValueError("Remaining Length MQTT inválido (> 4 bytes)")
+ 173 | 
+ 174 |     def _remover_cliente(self, conn: socket.socket) -> None:
+ 175 |         """Remove assinaturas e fecha socket de clientes desconectados ou inválidos."""
+ 176 |         with self._lock:
+ 177 |             self._clientes.discard(conn)
+ 178 |             client_id = self._client_ids.pop(conn, None)
+ 179 |             for inscritos in self._assinaturas.values():
+ 180 |                 inscritos.discard(conn)
+ 181 |         try:
+ 182 |             conn.close()
+ 183 |         except OSError:
+ 184 |             pass
+ 185 |         if client_id:
+ 186 |             self._log(f"[BROKER-MQTT] Cliente desconectado: {client_id}")
+ 187 | 
+ 188 |     # Loop de atendimento MQTT v3.1.1: trata conexão, assinatura, publicação e desconexão
+ 189 |     def _atender_cliente(self, conn: socket.socket, addr) -> None:
+ 190 |         try:
+ 191 |             while self._rodando.is_set():
+ 192 |                 cabecalho = self._ler_exato(conn, 1)
+ 193 |                 if cabecalho is None:
+ 194 |                     break
+ 195 |                 primeiro_byte = cabecalho[0]
+ 196 |                 tipo_pacote = primeiro_byte & 0xF0
+ 197 | 
+ 198 |                 rem_len = self._ler_remaining_length(conn)
+ 199 |                 if rem_len is None:
+ 200 |                     break
+ 201 | 
+ 202 |                 payload = self._ler_exato(conn, rem_len) if rem_len > 0 else b""
+ 203 |                 if payload is None:
+ 204 |                     break
+ 205 | 
+ 206 |                 if tipo_pacote == 0x10:  # CONNECT
+ 207 |                     self._processar_connect(conn, payload, addr)
+ 208 |                 elif tipo_pacote == 0x80:  # SUBSCRIBE
+ 209 |                     self._processar_subscribe(conn, payload)
+ 210 |                 elif tipo_pacote == 0x30:  # PUBLISH
+ 211 |                     self._processar_publish(conn, primeiro_byte, payload)
+ 212 |                 elif tipo_pacote == 0x40:  # PUBACK
+ 213 |                     pass
+ 214 |                 elif tipo_pacote == 0xC0:  # PINGREQ
+ 215 |                     conn.sendall(b"\xD0\x00")
+ 216 |                 elif tipo_pacote == 0xE0:  # DISCONNECT
+ 217 |                     break
+ 218 |                 else:
+ 219 |                     raise ValueError(f"Tipo de pacote MQTT não suportado: 0x{tipo_pacote:02x}")
+ 220 |         except (ValueError, UnicodeDecodeError, IndexError, OSError):
+ 221 |             pass
+ 222 |         finally:
+ 223 |             self._remover_cliente(conn)
+ 224 | 
+ 225 |     def _processar_connect(self, conn: socket.socket, payload: bytes, addr) -> None:
+ 226 |         if len(payload) < 10:
+ 227 |             raise ValueError("Pacote CONNECT muito curto")
+ 228 |         proto_len = int.from_bytes(payload[0:2], "big")
+ 229 |         idx = 2 + proto_len + 4
+ 230 |         client_id = f"{addr[0]}:{addr[1]}"
+ 231 |         if len(payload) >= idx + 2:
+ 232 |             cid_len = int.from_bytes(payload[idx : idx + 2], "big")
+ 233 |             if len(payload) >= idx + 2 + cid_len:
+ 234 |                 texto_id = payload[idx + 2 : idx + 2 + cid_len].decode("utf-8")
+ 235 |                 if texto_id:
+ 236 |                     client_id = texto_id
+ 237 | 
+ 238 |         with self._lock:
+ 239 |             self._client_ids[conn] = client_id
+ 240 | 
+ 241 |         conn.sendall(b"\x20\x02\x00\x00")  # CONNACK aceito
+ 242 |         self._log(f"[BROKER-MQTT] Cliente conectado: {client_id}")
+ 243 | 
+ 244 |     def _processar_subscribe(self, conn: socket.socket, payload: bytes) -> None:
+ 245 |         if len(payload) < 5:
+ 246 |             raise ValueError("Pacote SUBSCRIBE inválido")
+ 247 |         packet_id = payload[0:2]
+ 248 |         idx = 2
+ 249 |         codigos: List[int] = []
+ 250 | 
+ 251 |         while idx < len(payload):
+ 252 |             if idx + 2 > len(payload):
+ 253 |                 raise ValueError("Tópico truncado no SUBSCRIBE")
+ 254 |             topico_len = int.from_bytes(payload[idx : idx + 2], "big")
+ 255 |             idx += 2
+ 256 |             if idx + topico_len + 1 > len(payload):
+ 257 |                 raise ValueError("Conteúdo truncado no SUBSCRIBE")
+ 258 |             topico = payload[idx : idx + topico_len].decode("utf-8")
+ 259 |             idx += topico_len
+ 260 |             qos = min(payload[idx] & 0x03, 1)
+ 261 |             idx += 1
+ 262 | 
+ 263 |             with self._lock:
+ 264 |                 self._assinaturas.setdefault(topico, set()).add(conn)
+ 265 |                 cid = self._client_ids.get(conn, "cliente")
+ 266 | 
+ 267 |             codigos.append(qos)
+ 268 |             self._log(f"[BROKER-MQTT] Assinatura: {cid} -> '{topico}' (QoS {qos})")
+ 269 | 
+ 270 |         corpo = packet_id + bytes(codigos)
+ 271 |         conn.sendall(b"\x90" + _codificar_remaining_length(len(corpo)) + corpo)
+ 272 | 
+ 273 |     def _processar_publish(self, conn: socket.socket, primeiro_byte: int, payload: bytes) -> None:
+ 274 |         if len(payload) < 2:
+ 275 |             raise ValueError("Pacote PUBLISH inválido")
+ 276 |         qos = (primeiro_byte >> 1) & 0x03
+ 277 |         topico_len = int.from_bytes(payload[0:2], "big")
+ 278 |         idx = 2 + topico_len
+ 279 |         if len(payload) < idx:
+ 280 |             raise ValueError("Tópico truncado no PUBLISH")
+ 281 |         topico = payload[2:idx].decode("utf-8")
+ 282 | 
+ 283 |         if qos > 0:
+ 284 |             if len(payload) < idx + 2:
+ 285 |                 raise ValueError("Packet ID ausente em PUBLISH QoS > 0")
+ 286 |             packet_id = payload[idx : idx + 2]
+ 287 |             idx += 2
+ 288 |             if qos == 1:
+ 289 |                 # PUBACK imediato garante confirmação de entrega QoS 1 ao publicador
+ 290 |                 conn.sendall(b"\x40\x02" + packet_id)
+ 291 | 
+ 292 |         mensagem = payload[idx:]
+ 293 |         topico_bytes = topico.encode("utf-8")
+ 294 |         corpo = len(topico_bytes).to_bytes(2, "big") + topico_bytes + mensagem
+ 295 |         pacote = b"\x30" + _codificar_remaining_length(len(corpo)) + corpo
+ 296 | 
+ 297 |         with self._lock:
+ 298 |             destinatarios = set(self._assinaturas.get(topico, ()))
+ 299 | 
+ 300 |         falhos: List[socket.socket] = []
+ 301 |         for sock in destinatarios:
+ 302 |             try:
+ 303 |                 sock.sendall(pacote)
+ 304 |             except OSError:
+ 305 |                 falhos.append(sock)
+ 306 | 
+ 307 |         for sock in falhos:
+ 308 |             self._remover_cliente(sock)
+ 309 | 
+ 310 | 
+ 311 | def _porta_em_uso(host: str, port: int) -> bool:
+ 312 |     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+ 313 |         s.settimeout(0.3)
+ 314 |         return s.connect_ex((host, port)) == 0
+ 315 | 
+ 316 | 
+ 317 | def executar_broker(host: str = "127.0.0.1", port: int = config.MQTT_PORT) -> None:
+ 318 |     """Valida parâmetros, verifica disponibilidade da porta e inicia o broker local."""
+ 319 |     if not host or not isinstance(host, str):
+ 320 |         raise ValueError("Host inválido.")
+ 321 |     if isinstance(port, bool) or not isinstance(port, int) or not (1 <= port <= 65535):
+ 322 |         raise ValueError(f"Porta inválida: {port}. Deve estar entre 1 e 65535.")
+ 323 | 
+ 324 |     if _porta_em_uso(host, port):
+ 325 |         print(f"[BROKER-MQTT] Porta {port} já está em uso em {host}. Encerrando.")
+ 326 |         return
+ 327 | 
+ 328 |     BrokerMQTTLocal(host=host, port=port).servir_para_sempre()
+ 329 | 
+ 330 | 
+ 331 | if __name__ == "__main__":
+ 332 |     parser = argparse.ArgumentParser(description="Broker MQTT v3.1.1 Local (Python Puro)")
+ 333 |     parser.add_argument("--host", type=str, default="127.0.0.1", help="IP de bind (padrão: 127.0.0.1)")
+ 334 |     parser.add_argument("--port", type=int, default=config.MQTT_PORT, help=f"Porta TCP (padrão: {config.MQTT_PORT})")
+ 335 |     args = parser.parse_args()
+ 336 |     executar_broker(host=args.host, port=args.port)
+<<< FIM DO ARQUIVO: estufa/broker_local.py (Linha Original 336) <<<
+##############################################################################################################
+
+
+##############################################################################################################
+# ARQUIVO [05/11]: estufa/sensor.py
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\estufa\sensor.py
+# CATEGORIA / GRUPO: 1. NÚCLEO DO SISTEMA DISTRIBUÍDO (MÓDULOS PYTHON EM estufa/)
+# DESCRIÇÃO: Simulador contínuo de temperatura e umidade com loop de física real
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 170
+# TOTAL DE LINHAS NO ORIGINAL: 170 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: estufa/sensor.py (Linha Original 1) >>>
+   1 | """
+   2 | sensor.py — Processo Sensor da Estufa em malha fechada contínua.
+   3 | 
+   4 | Publica leituras periódicas de temperatura (°C) e umidade do solo (%) via MQTT
+   5 | e assina os tópicos de status da bomba e do exaustor para ajustar as próximas
+   6 | leituras de forma contínua e natural.
+   7 | 
+   8 | Uso:
+   9 |     python -m estufa.sensor
+  10 |     python -m estufa.sensor --temp 37.0 --umidade 25.0 --intervalo 2.0
+  11 | """
+  12 | 
+  13 | import argparse
+  14 | import json
+  15 | import random
+  16 | import threading
+  17 | import time
+  18 | import paho.mqtt.client as mqtt
+  19 | from estufa import config
+  20 | 
+  21 | TEMP_LIMITE_MIN = 0.0
+  22 | TEMP_LIMITE_MAX = 55.0
+  23 | UMIDADE_LIMITE_MIN = 0.0
+  24 | UMIDADE_LIMITE_MAX = 100.0
+  25 | 
+  26 | 
+  27 | class SimuladorAmbiente:
+  28 |     """Simula a evolução física da estufa em malha fechada conforme os atuadores."""
+  29 | 
+  30 |     def __init__(self, temp_inicial: float = 28.0, umidade_inicial: float = 42.0):
+  31 |         if isinstance(temp_inicial, bool) or not (-50.0 <= float(temp_inicial) <= 100.0):
+  32 |             raise ValueError(f"Temperatura inicial inválida: {temp_inicial} (esperado: -50..100).")
+  33 |         if isinstance(umidade_inicial, bool) or not (0.0 <= float(umidade_inicial) <= 100.0):
+  34 |             raise ValueError(f"Umidade inicial inválida: {umidade_inicial} (esperado: 0..100).")
+  35 | 
+  36 |         self.temperatura = round(float(temp_inicial), 2)
+  37 |         self.umidade = round(float(umidade_inicial), 2)
+  38 |         self.bomba_ligada = False
+  39 |         self.exaustor_ligado = False
+  40 |         self._lock = threading.Lock()
+  41 | 
+  42 |     def atualizar_atuador(self, atuador: str, ligado: bool) -> None:
+  43 |         """Atualiza o estado conhecido do atuador a partir do feedback MQTT."""
+  44 |         with self._lock:
+  45 |             if atuador == "bomba":
+  46 |                 self.bomba_ligada = bool(ligado)
+  47 |             elif atuador == "exaustor":
+  48 |                 self.exaustor_ligado = bool(ligado)
+  49 | 
+  50 |     def proxima_leitura(self) -> tuple[float, float]:
+  51 |         """Calcula a próxima leitura aplicando aquecimento/resfriamento e irrigação/evaporação."""
+  52 |         with self._lock:
+  53 |             # Com exaustor desligado a estufa aquece até cruzar 35°C; ligado, resfria até < 15°C
+  54 |             delta_temp = (
+  55 |                 random.uniform(-3.5, -2.2)
+  56 |                 if self.exaustor_ligado
+  57 |                 else random.uniform(1.6, 2.6)
+  58 |             )
+  59 |             # Com bomba desligada o solo seca até < 30%; ligada, umidifica até > 70%
+  60 |             delta_umidade = (
+  61 |                 random.uniform(5.0, 7.5)
+  62 |                 if self.bomba_ligada
+  63 |                 else random.uniform(-4.0, -2.5)
+  64 |             )
+  65 | 
+  66 |             self.temperatura = round(
+  67 |                 max(TEMP_LIMITE_MIN, min(TEMP_LIMITE_MAX, self.temperatura + delta_temp)),
+  68 |                 2,
+  69 |             )
+  70 |             self.umidade = round(
+  71 |                 max(UMIDADE_LIMITE_MIN, min(UMIDADE_LIMITE_MAX, self.umidade + delta_umidade)),
+  72 |                 2,
+  73 |             )
+  74 |             return self.temperatura, self.umidade
+  75 | 
+  76 | 
+  77 | # Inscrição MQTT nos tópicos de status com QoS 1 para fechar a malha do simulador
+  78 | def _on_connect(client, userdata, flags, reason_code, properties) -> None:
+  79 |     if reason_code == 0:
+  80 |         client.subscribe(config.TOPIC_STATUS_BOMBA, qos=1)
+  81 |         client.subscribe(config.TOPIC_STATUS_EXAUSTOR, qos=1)
+  82 |         print("[SENSOR] Conectado ao broker MQTT. Assinando feedback dos atuadores.")
+  83 |     else:
+  84 |         print(f"[SENSOR] Falha na conexão MQTT: {reason_code}")
+  85 | 
+  86 | 
+  87 | # Callback de recepção MQTT: atualiza bomba/exaustor e ignora payloads malformados
+  88 | def _on_message(client, userdata, msg) -> None:
+  89 |     try:
+  90 |         payload = json.loads(msg.payload.decode("utf-8"))
+  91 |     except (json.JSONDecodeError, UnicodeDecodeError):
+  92 |         return
+  93 | 
+  94 |     if not isinstance(payload, dict):
+  95 |         return
+  96 | 
+  97 |     atuador = payload.get("atuador")
+  98 |     if atuador not in ("bomba", "exaustor") or "ligado" not in payload:
+  99 |         return
+ 100 | 
+ 101 |     ligado = bool(payload["ligado"])
+ 102 |     userdata.atualizar_atuador(atuador, ligado)
+ 103 |     print(f"[SENSOR] Feedback recebido: {atuador} -> {'ON' if ligado else 'OFF'}")
+ 104 | 
+ 105 | 
+ 106 | def publicar_leitura(client: mqtt.Client, topico: str, valor: float, unidade: str) -> None:
+ 107 |     """Publica leitura JSON no tópico MQTT com entrega garantida (QoS 1)."""
+ 108 |     payload = json.dumps({
+ 109 |         "valor": round(valor, 2),
+ 110 |         "unidade": unidade,
+ 111 |         "timestamp": time.time(),
+ 112 |     })
+ 113 |     # QoS 1 garante que todos os controladores recebam a leitura sem perdas silenciosas
+ 114 |     info = client.publish(topico, payload, qos=1)
+ 115 |     info.wait_for_publish()
+ 116 |     print(f"[SENSOR] {topico}: {valor:.2f}{unidade}")
+ 117 | 
+ 118 | 
+ 119 | def executar_sensor(
+ 120 |     temp_inicial: float = 28.0,
+ 121 |     umidade_inicial: float = 42.0,
+ 122 |     intervalo: float = 2.0,
+ 123 |     max_iteracoes: int | None = None,
+ 124 | ) -> None:
+ 125 |     """Inicia o cliente MQTT (callbacks antes do connect) e publica leituras contínuas."""
+ 126 |     if isinstance(intervalo, bool) or float(intervalo) <= 0.05:
+ 127 |         raise ValueError(f"Intervalo inválido: {intervalo} (deve ser maior que 0.05s).")
+ 128 | 
+ 129 |     simulador = SimuladorAmbiente(temp_inicial=temp_inicial, umidade_inicial=umidade_inicial)
+ 130 |     client = mqtt.Client(
+ 131 |         mqtt.CallbackAPIVersion.VERSION2,
+ 132 |         client_id="sensor_estufa",
+ 133 |         userdata=simulador,
+ 134 |     )
+ 135 |     # Callbacks registrados antes do connect() evitam perder SUBACK/mensagens iniciais
+ 136 |     client.on_connect = _on_connect
+ 137 |     client.on_message = _on_message
+ 138 |     client.connect(config.MQTT_HOST, config.MQTT_PORT, config.MQTT_KEEPALIVE)
+ 139 |     client.loop_start()
+ 140 | 
+ 141 |     iteracao = 0
+ 142 |     try:
+ 143 |         while True:
+ 144 |             temperatura, umidade = simulador.proxima_leitura()
+ 145 |             publicar_leitura(client, config.TOPIC_TEMPERATURA, temperatura, "°C")
+ 146 |             publicar_leitura(client, config.TOPIC_UMIDADE_SOLO, umidade, "%")
+ 147 | 
+ 148 |             iteracao += 1
+ 149 |             if max_iteracoes is not None and iteracao >= max_iteracoes:
+ 150 |                 break
+ 151 |             time.sleep(float(intervalo))
+ 152 |     except KeyboardInterrupt:
+ 153 |         print("\n[SENSOR] Encerrando sensor.")
+ 154 |     finally:
+ 155 |         client.loop_stop()
+ 156 |         client.disconnect()
+ 157 | 
+ 158 | 
+ 159 | if __name__ == "__main__":
+ 160 |     parser = argparse.ArgumentParser(description="Sensor Contínuo da Estufa Agrícola")
+ 161 |     parser.add_argument("--temp", type=float, default=28.0, help="Temperatura inicial (°C, -50..100)")
+ 162 |     parser.add_argument("--umidade", type=float, default=42.0, help="Umidade inicial (%%, 0..100)")
+ 163 |     parser.add_argument("--intervalo", type=float, default=2.0, help="Intervalo entre leituras (> 0.05s)")
+ 164 |     args = parser.parse_args()
+ 165 | 
+ 166 |     executar_sensor(
+ 167 |         temp_inicial=args.temp,
+ 168 |         umidade_inicial=args.umidade,
+ 169 |         intervalo=args.intervalo,
+ 170 |     )
+<<< FIM DO ARQUIVO: estufa/sensor.py (Linha Original 170) <<<
+##############################################################################################################
+
+
+##############################################################################################################
+# ARQUIVO [06/11]: estufa/atuador.py
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\estufa\atuador.py
+# CATEGORIA / GRUPO: 1. NÚCLEO DO SISTEMA DISTRIBUÍDO (MÓDULOS PYTHON EM estufa/)
+# DESCRIÇÃO: Controlador de atuadores (bomba e exaustor) com confirmação de status
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 96
+# TOTAL DE LINHAS NO ORIGINAL: 96 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: estufa/atuador.py (Linha Original 1) >>>
+   1 | """
+   2 | atuador.py — Processo Atuador do sistema da estufa agrícola.
+   3 | 
+   4 | Assina os tópicos de comando da bomba e do exaustor no broker MQTT,
+   5 | atualiza o estado físico dos equipamentos e publica confirmação de status
+   6 | para fechar a malha de controle com o sensor.
+   7 | 
+   8 | Uso:
+   9 |     python -m estufa.atuador
+  10 | """
+  11 | 
+  12 | import json
+  13 | import time
+  14 | import paho.mqtt.client as mqtt
+  15 | from estufa import config
+  16 | 
+  17 | _estado_bomba = {"ligado": False}
+  18 | _estado_exaustor = {"ligado": False}
+  19 | 
+  20 | 
+  21 | # Inscrição nos tópicos de comando com QoS 1 após conectar ao broker MQTT
+  22 | def _on_connect(client, userdata, flags, reason_code, properties) -> None:
+  23 |     if reason_code == 0:
+  24 |         client.subscribe(config.TOPIC_ATUADOR_BOMBA, qos=1)
+  25 |         client.subscribe(config.TOPIC_ATUADOR_EXAUSTOR, qos=1)
+  26 |         print("[ATUADOR] Conectado ao broker MQTT. Assinando comandos de bomba e exaustor.")
+  27 |     else:
+  28 |         print(f"[ATUADOR] Falha na conexão MQTT: {reason_code}")
+  29 | 
+  30 | 
+  31 | def _publicar_status(client: mqtt.Client, topico: str, nome: str, ligado: bool) -> None:
+  32 |     """Publica confirmação do estado atual do atuador para retroalimentar o sensor."""
+  33 |     payload = json.dumps({
+  34 |         "atuador": nome,
+  35 |         "ligado": ligado,
+  36 |         "timestamp": time.time(),
+  37 |     })
+  38 |     # Publica status com QoS 1 para atualizar a simulação de malha fechada do sensor
+  39 |     client.publish(topico, payload, qos=1)
+  40 | 
+  41 | 
+  42 | def _processar_atuador(
+  43 |     client: mqtt.Client,
+  44 |     nome: str,
+  45 |     estado_ref: dict,
+  46 |     topico_status: str,
+  47 |     payload: dict,
+  48 | ) -> bool:
+  49 |     """Valida a ação ('ligar'/'desligar'), atualiza o estado local e publica confirmação."""
+  50 |     if not isinstance(payload, dict):
+  51 |         return False
+  52 | 
+  53 |     acao = str(payload.get("acao", "")).strip().lower()
+  54 |     if acao not in ("ligar", "desligar"):
+  55 |         print(f"[ATUADOR] Ação inválida ignorada para {nome}: '{acao}'")
+  56 |         return False
+  57 | 
+  58 |     novo_estado = (acao == "ligar")
+  59 |     estado_ref["ligado"] = novo_estado
+  60 |     origem = payload.get("origem", "desconhecido")
+  61 |     print(f"[ATUADOR] {nome.capitalize()} -> {'LIGADO' if novo_estado else 'DESLIGADO'} (líder: {origem})")
+  62 |     _publicar_status(client, topico_status, nome, novo_estado)
+  63 |     return True
+  64 | 
+  65 | 
+  66 | def _on_message(client, userdata, msg) -> None:
+  67 |     """Decodifica comando JSON e roteia para bomba ou exaustor."""
+  68 |     try:
+  69 |         payload = json.loads(msg.payload.decode("utf-8"))
+  70 |     except (json.JSONDecodeError, UnicodeDecodeError):
+  71 |         print(f"[ATUADOR] Payload inválido ignorado em {msg.topic}")
+  72 |         return
+  73 | 
+  74 |     if msg.topic == config.TOPIC_ATUADOR_BOMBA:
+  75 |         _processar_atuador(client, "bomba", _estado_bomba, config.TOPIC_STATUS_BOMBA, payload)
+  76 |     elif msg.topic == config.TOPIC_ATUADOR_EXAUSTOR:
+  77 |         _processar_atuador(client, "exaustor", _estado_exaustor, config.TOPIC_STATUS_EXAUSTOR, payload)
+  78 | 
+  79 | 
+  80 | def executar_atuador() -> None:
+  81 |     """Inicia o cliente MQTT do atuador e aguarda comandos oficiais do Líder."""
+  82 |     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="atuador_estufa")
+  83 |     client.on_connect = _on_connect
+  84 |     client.on_message = _on_message
+  85 |     client.connect(config.MQTT_HOST, config.MQTT_PORT, config.MQTT_KEEPALIVE)
+  86 |     print("[ATUADOR] Aguardando comandos oficiais via MQTT...")
+  87 |     try:
+  88 |         client.loop_forever()
+  89 |     except KeyboardInterrupt:
+  90 |         print("\n[ATUADOR] Encerrando atuador.")
+  91 |     finally:
+  92 |         client.disconnect()
+  93 | 
+  94 | 
+  95 | if __name__ == "__main__":
+  96 |     executar_atuador()
+<<< FIM DO ARQUIVO: estufa/atuador.py (Linha Original 96) <<<
+##############################################################################################################
+
+
+##############################################################################################################
+# ARQUIVO [07/11]: estufa/controlador.py
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\estufa\controlador.py
+# CATEGORIA / GRUPO: 1. NÚCLEO DO SISTEMA DISTRIBUÍDO (MÓDULOS PYTHON EM estufa/)
+# DESCRIÇÃO: Controlador de processo: eleição Bully, quórum, replicação e RPC
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 911
+# TOTAL DE LINHAS NO ORIGINAL: 911 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: estufa/controlador.py (Linha Original 1) >>>
+   1 | """
+   2 | controlador.py — Processo Controlador distribuído com liderança e consenso.
+   3 | 
+   4 | Responsabilidades:
+   5 |   1. Eleição dinâmica de líder entre os controladores (algoritmo Bully via XML-RPC).
+   6 |   2. Validação por consenso dinâmico antes de persistir o estado oficial nos bancos
+   7 |      replicados (data_ctrl_1.json, data_ctrl_2.json, data_ctrl_3.json).
+   8 |   3. Publicação exclusiva pelo Líder dos comandos MQTT de atuação (bomba e exaustor).
+   9 |   4. Sincronização automática de réplica no boot/reconexão diretamente com os pares.
+  10 | 
+  11 | Uso simplificado:
+  12 |     python -m estufa.controlador 1
+  13 |     python -m estufa.controlador 2 --byzantino
+  14 | """
+  15 | 
+  16 | import argparse
+  17 | import concurrent.futures
+  18 | from datetime import datetime, timezone
+  19 | import json
+  20 | import os
+  21 | import socket
+  22 | import socketserver
+  23 | import threading
+  24 | import time
+  25 | import xmlrpc.client
+  26 | from xmlrpc.server import SimpleXMLRPCServer
+  27 | import paho.mqtt.client as mqtt
+  28 | from estufa import config
+  29 | from estufa.middleware import ClusterMiddleware, ErroQuorum, criar_proxy_rpc
+  30 | 
+  31 | 
+  32 | class _ThreadedXMLRPCServer(socketserver.ThreadingMixIn, SimpleXMLRPCServer):
+  33 |     """Servidor XML-RPC multi-thread com reuso de porta para evitar bloqueios e WinError 10048."""
+  34 | 
+  35 |     allow_reuse_address = True
+  36 |     daemon_threads = True
+  37 | 
+  38 | 
+  39 | ESTADO_INICIAL = {
+  40 |     "temperatura": None,
+  41 |     "umidade": None,
+  42 |     "bomba_ligada": False,
+  43 |     "exaustor_ligado": False,
+  44 |     "ultima_atualizacao": None,
+  45 |     "lider_id": None,
+  46 | }
+  47 | 
+  48 | CAMPOS_PERSISTIDOS = (
+  49 |     "temperatura",
+  50 |     "umidade",
+  51 |     "bomba_ligada",
+  52 |     "exaustor_ligado",
+  53 |     "ultima_atualizacao",
+  54 |     "lider_id",
+  55 | )
+  56 | 
+  57 | 
+  58 | def _avaliar_regras_atuacao(
+  59 |     temperatura: float | None,
+  60 |     umidade: float | None,
+  61 |     bomba_atual: bool,
+  62 |     exaustor_atual: bool,
+  63 | ) -> tuple[bool, bool]:
+  64 |     """Avalia regras de histerese para bomba e exaustor sem efeitos colaterais."""
+  65 |     novo_exaustor = exaustor_atual
+  66 |     if temperatura is not None:
+  67 |         if temperatura > config.TEMP_MAX_CELSIUS:
+  68 |             novo_exaustor = True
+  69 |         elif temperatura < config.TEMP_MIN_CELSIUS:
+  70 |             novo_exaustor = False
+  71 | 
+  72 |     nova_bomba = bomba_atual
+  73 |     if umidade is not None:
+  74 |         if umidade < config.UMIDADE_MIN_PERCENT:
+  75 |             nova_bomba = True
+  76 |         elif umidade > config.UMIDADE_MAX_PERCENT:
+  77 |             nova_bomba = False
+  78 | 
+  79 |     return nova_bomba, novo_exaustor
+  80 | 
+  81 | 
+  82 | def _validar_limites_sensor(temperatura: float | None, umidade: float | None) -> bool:
+  83 |     """Valida se leituras de temperatura e umidade estão dentro de faixa física aceitável."""
+  84 |     if temperatura is not None:
+  85 |         if isinstance(temperatura, bool) or not isinstance(temperatura, (int, float)):
+  86 |             return False
+  87 |         if not (-50.0 <= float(temperatura) <= 100.0):
+  88 |             return False
+  89 |     if umidade is not None:
+  90 |         if isinstance(umidade, bool) or not isinstance(umidade, (int, float)):
+  91 |             return False
+  92 |         if not (0.0 <= float(umidade) <= 100.0):
+  93 |             return False
+  94 |     return True
+  95 | 
+  96 | 
+  97 | class Controlador:
+  98 |     """
+  99 |     Nó controlador replicado do cluster distribuído (Middleware lógico embarcado).
+ 100 | 
+ 101 |     Regra de concorrência: self._lock nunca é mantido durante chamadas XML-RPC externas,
+ 102 |     prevenindo deadlocks entre eleições, votações e commits simultâneos.
+ 103 |     """
+ 104 | 
+ 105 |     def __init__(
+ 106 |         self,
+ 107 |         ctrl_id: str | int,
+ 108 |         port: int | None = None,
+ 109 |         data_file: str | None = None,
+ 110 |         host: str = "127.0.0.1",
+ 111 |         byzantino: bool = False,
+ 112 |         pares: list[dict] | None = None,
+ 113 |         timeout_rpc: float = config.TIMEOUT_RPC_SEGUNDOS,
+ 114 |         heartbeat_interval: float = config.INTERVALO_HEARTBEAT_SEGUNDOS,
+ 115 |     ):
+ 116 |         try:
+ 117 |             cfg = config.obter_config_controlador(ctrl_id)
+ 118 |             self.ctrl_id = cfg["id"]
+ 119 |             self.rank = int(cfg["rank"])
+ 120 |             self.host = host or cfg["host"]
+ 121 |             self.port = int(port if port is not None else cfg["port"])
+ 122 |             self.data_file = data_file if data_file is not None else cfg["data_file"]
+ 123 |         except ValueError:
+ 124 |             self.ctrl_id = str(ctrl_id)
+ 125 |             digitos = "".join(ch for ch in self.ctrl_id if ch.isdigit())
+ 126 |             self.rank = int(digitos) if digitos else 1
+ 127 |             self.host = host
+ 128 |             self.port = int(port if port is not None else 8000 + self.rank)
+ 129 |             self.data_file = data_file if data_file is not None else f"data_{self.ctrl_id}.json"
+ 130 | 
+ 131 |         self.byzantino = bool(byzantino)
+ 132 |         self._timeout_rpc = float(timeout_rpc)
+ 133 |         self._heartbeat_interval = float(heartbeat_interval)
+ 134 | 
+ 135 |         if pares is not None:
+ 136 |             self._pares = [dict(p) for p in pares if p.get("id") != self.ctrl_id]
+ 137 |         else:
+ 138 |             self._pares = [
+ 139 |                 dict(c) for c in config.MAPA_CONTROLADORES.values()
+ 140 |                 if c["id"] != self.ctrl_id
+ 141 |             ]
+ 142 | 
+ 143 |         self._lock = threading.RLock()
+ 144 |         self._eleicao_lock = threading.Lock()
+ 145 |         self._parar_evento = threading.Event()
+ 146 |         self._mqtt_client = None
+ 147 |         self._server: SimpleXMLRPCServer | None = None
+ 148 | 
+ 149 |         self._estado = self._carregar_estado()
+ 150 |         # No boot/reconexão, o líder ativo deve ser descoberto no cluster (não assumido do disco antigo)
+ 151 |         self.lider_id: str | None = None
+ 152 | 
+ 153 |     def eh_lider(self) -> bool:
+ 154 |         """Indica se este controlador é o líder atual do cluster."""
+ 155 |         with self._lock:
+ 156 |             return self.lider_id == self.ctrl_id
+ 157 | 
+ 158 |     def _criar_proxy_par(self, par: dict) -> xmlrpc.client.ServerProxy:
+ 159 |         """Cria um proxy XML-RPC com timeout explícito para um controlador par."""
+ 160 |         return criar_proxy_rpc(par["host"], int(par["port"]), timeout=self._timeout_rpc)
+ 161 | 
+ 162 |     def _carregar_estado(self) -> dict:
+ 163 |         """Lê o estado persistido em disco ou retorna o estado inicial canônico."""
+ 164 |         if os.path.exists(self.data_file):
+ 165 |             try:
+ 166 |                 with open(self.data_file, "r", encoding="utf-8") as f:
+ 167 |                     dados = json.load(f)
+ 168 |                 if isinstance(dados, dict):
+ 169 |                     estado = dict(ESTADO_INICIAL)
+ 170 |                     for chave in CAMPOS_PERSISTIDOS:
+ 171 |                         if chave in dados:
+ 172 |                             estado[chave] = dados[chave]
+ 173 |                     if "umidade" not in dados and "umidade_solo" in dados:
+ 174 |                         estado["umidade"] = dados["umidade_solo"]
+ 175 |                     return estado
+ 176 |             except (json.JSONDecodeError, OSError):
+ 177 |                 pass
+ 178 |         return dict(ESTADO_INICIAL)
+ 179 | 
+ 180 |     def _salvar_estado(self) -> None:
+ 181 |         """Persiste de forma atômica o estado oficial no arquivo JSON local."""
+ 182 |         with self._lock:
+ 183 |             dados = {chave: self._estado.get(chave) for chave in CAMPOS_PERSISTIDOS}
+ 184 |         tmp_file = f"{self.data_file}.{threading.get_ident()}.tmp"
+ 185 |         try:
+ 186 |             with open(tmp_file, "w", encoding="utf-8") as f:
+ 187 |                 json.dump(dados, f, indent=2, ensure_ascii=False)
+ 188 |             for tentativa in range(5):
+ 189 |                 try:
+ 190 |                     os.replace(tmp_file, self.data_file)
+ 191 |                     return
+ 192 |                 except PermissionError:
+ 193 |                     if tentativa == 4:
+ 194 |                         raise
+ 195 |                     time.sleep(0.02)
+ 196 |         except OSError as e:
+ 197 |             print(f"[{self.ctrl_id}] Erro ao salvar estado: {e}")
+ 198 |         finally:
+ 199 |             if os.path.exists(tmp_file):
+ 200 |                 try:
+ 201 |                     os.remove(tmp_file)
+ 202 |                 except OSError:
+ 203 |                     pass
+ 204 | 
+ 205 |     # ------------------------------------------------------------------
+ 206 |     # Métodos RPC de Eleição (Algoritmo Valentão / Bully) e Heartbeat
+ 207 |     # ------------------------------------------------------------------
+ 208 | 
+ 209 |     def ping(self) -> dict:
+ 210 |         """Verificação de disponibilidade e identificação do papel do nó."""
+ 211 |         with self._lock:
+ 212 |             return {
+ 213 |                 "status": "ok",
+ 214 |                 "id": self.ctrl_id,
+ 215 |                 "rank": self.rank,
+ 216 |                 "lider_id": self.lider_id,
+ 217 |             }
+ 218 | 
+ 219 |     def iniciar_eleicao(self, rank_origem: int) -> dict:
+ 220 |         """Recebe mensagem de eleição de um nó de menor rank e assume se tiver prioridade maior."""
+ 221 |         if not isinstance(rank_origem, int) or isinstance(rank_origem, bool):
+ 222 |             raise ValueError("rank_origem deve ser inteiro.")
+ 223 | 
+ 224 |         if self.rank > rank_origem:
+ 225 |             threading.Thread(target=self.realizar_eleicao, daemon=True).start()
+ 226 |             return {"aceito": True, "id": self.ctrl_id, "rank": self.rank}
+ 227 | 
+ 228 |         return {"aceito": False, "id": self.ctrl_id, "rank": self.rank}
+ 229 | 
+ 230 |     def _obter_rank_id(self, ctrl_id: str) -> int:
+ 231 |         try:
+ 232 |             return int(config.obter_config_controlador(ctrl_id)["rank"])
+ 233 |         except ValueError:
+ 234 |             digs = "".join(ch for ch in str(ctrl_id) if ch.isdigit())
+ 235 |             return int(digs) if digs else 0
+ 236 | 
+ 237 |     def anunciar_lider(self, novo_lider_id: str) -> dict:
+ 238 |         """Registra o novo líder eleito pelo algoritmo Bully."""
+ 239 |         if not isinstance(novo_lider_id, str) or not novo_lider_id.strip():
+ 240 |             raise ValueError("novo_lider_id inválido.")
+ 241 | 
+ 242 |         lider_limpo = novo_lider_id.strip()
+ 243 |         if self._obter_rank_id(lider_limpo) < self.rank:
+ 244 |             # Nó de rank superior nunca aceita líder de rank inferior; dispara nova eleição Bully
+ 245 |             threading.Thread(target=self.realizar_eleicao, daemon=True).start()
+ 246 |             return {"ok": False, "id": self.ctrl_id, "lider_id": self.ctrl_id}
+ 247 | 
+ 248 |         with self._lock:
+ 249 |             self.lider_id = lider_limpo
+ 250 |             self._estado["lider_id"] = self.lider_id
+ 251 |             self._salvar_estado()
+ 252 | 
+ 253 |         print(f"[ELEICAO] [{self.ctrl_id}] Novo líder reconhecido: {self.lider_id}")
+ 254 |         return {"ok": True, "id": self.ctrl_id, "lider_id": self.lider_id}
+ 255 | 
+ 256 |     # Algoritmo Valentão (Bully): consulta nós com rank maior; se nenhum responder, assume liderança
+ 257 |     def realizar_eleicao(self) -> str:
+ 258 |         """Executa o algoritmo Bully entre os pares configurados e elege o maior rank ativo."""
+ 259 |         with self._eleicao_lock:
+ 260 |             with self._lock:
+ 261 |                 pares = list(self._pares)
+ 262 | 
+ 263 |             superiores = sorted(
+ 264 |                 [p for p in pares if int(p["rank"]) > self.rank],
+ 265 |                 key=lambda p: int(p["rank"]),
+ 266 |                 reverse=True,
+ 267 |             )
+ 268 | 
+ 269 |             superior_ativo = None
+ 270 |             if superiores:
+ 271 |                 executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(superiores))
+ 272 |                 futuros = {
+ 273 |                     executor.submit(
+ 274 |                         lambda par: self._criar_proxy_par(par).iniciar_eleicao(self.rank),
+ 275 |                         p,
+ 276 |                     ): p
+ 277 |                     for p in superiores
+ 278 |                 }
+ 279 |                 respondentes = []
+ 280 |                 try:
+ 281 |                     for fut in concurrent.futures.as_completed(futuros, timeout=self._timeout_rpc + 0.2):
+ 282 |                         par = futuros[fut]
+ 283 |                         try:
+ 284 |                             resp = fut.result(timeout=0.1)
+ 285 |                             if isinstance(resp, dict) and resp.get("aceito"):
+ 286 |                                 respondentes.append(par)
+ 287 |                         except Exception:
+ 288 |                             continue
+ 289 |                 except (concurrent.futures.TimeoutError, TimeoutError):
+ 290 |                     pass
+ 291 |                 finally:
+ 292 |                     executor.shutdown(wait=False, cancel_futures=True)
+ 293 | 
+ 294 |                 if respondentes:
+ 295 |                     superior_ativo = max(respondentes, key=lambda p: int(p["rank"]))
+ 296 | 
+ 297 |             if superior_ativo is None:
+ 298 |                 with self._lock:
+ 299 |                     self.lider_id = self.ctrl_id
+ 300 |                     self._estado["lider_id"] = self.ctrl_id
+ 301 |                     self._salvar_estado()
+ 302 |                     estado_para_replicar = dict(self._estado)
+ 303 | 
+ 304 |                 print(f"[ELEICAO] [{self.ctrl_id}] Assumiu a LIDERANÇA (rank={self.rank}).")
+ 305 | 
+ 306 |                 if pares:
+ 307 |                     def _notificar_par(par: dict) -> None:
+ 308 |                         proxy = self._criar_proxy_par(par)
+ 309 |                         proxy.anunciar_lider(self.ctrl_id)
+ 310 |                         if (
+ 311 |                             not self.byzantino
+ 312 |                             and estado_para_replicar.get("ultima_atualizacao") is not None
+ 313 |                         ):
+ 314 |                             proxy.commit_estado(estado_para_replicar)
+ 315 | 
+ 316 |                     executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(pares))
+ 317 |                     futuros_anuncio = [executor.submit(_notificar_par, par) for par in pares]
+ 318 |                     try:
+ 319 |                         concurrent.futures.wait(futuros_anuncio, timeout=self._timeout_rpc + 0.3)
+ 320 |                     finally:
+ 321 |                         executor.shutdown(wait=False, cancel_futures=True)
+ 322 |                 return self.ctrl_id
+ 323 | 
+ 324 |             # Aguarda brevemente o anúncio do nó superior; se ainda não chegou, consulta o superior
+ 325 |             time.sleep(min(0.25, self._timeout_rpc))
+ 326 |             try:
+ 327 |                 resp_ping = self._criar_proxy_par(superior_ativo).ping()
+ 328 |                 novo_lider = (
+ 329 |                     resp_ping.get("lider_id") or superior_ativo["id"]
+ 330 |                     if isinstance(resp_ping, dict)
+ 331 |                     else superior_ativo["id"]
+ 332 |                 )
+ 333 |             except Exception:
+ 334 |                 novo_lider = superior_ativo["id"]
+ 335 | 
+ 336 |             with self._lock:
+ 337 |                 self.lider_id = novo_lider
+ 338 |                 self._estado["lider_id"] = novo_lider
+ 339 |                 self._salvar_estado()
+ 340 | 
+ 341 |             return novo_lider
+ 342 | 
+ 343 |     def _encontrar_par(self, ctrl_id: str | None) -> dict | None:
+ 344 |         if not ctrl_id:
+ 345 |             return None
+ 346 |         for par in self._pares:
+ 347 |             if par["id"] == ctrl_id:
+ 348 |                 return par
+ 349 |         return None
+ 350 | 
+ 351 |     # Detecção de falha por heartbeat: monitora o líder via ping() e dispara eleição se cair
+ 352 |     def _loop_heartbeat(self) -> None:
+ 353 |         """Monitora periodicamente o líder ativo e dispara eleição em caso de falha."""
+ 354 |         while not self._parar_evento.is_set():
+ 355 |             self._parar_evento.wait(self._heartbeat_interval)
+ 356 |             if self._parar_evento.is_set():
+ 357 |                 break
+ 358 | 
+ 359 |             with self._lock:
+ 360 |                 lider_atual = self.lider_id
+ 361 | 
+ 362 |             if lider_atual is None:
+ 363 |                 self.realizar_eleicao()
+ 364 |                 continue
+ 365 | 
+ 366 |             if lider_atual == self.ctrl_id:
+ 367 |                 continue
+ 368 | 
+ 369 |             par_lider = self._encontrar_par(lider_atual)
+ 370 |             if par_lider is None:
+ 371 |                 self.realizar_eleicao()
+ 372 |                 continue
+ 373 | 
+ 374 |             try:
+ 375 |                 resp = self._criar_proxy_par(par_lider).ping()
+ 376 |                 if not isinstance(resp, dict) or resp.get("status") != "ok":
+ 377 |                     raise OSError("Resposta inválida no heartbeat")
+ 378 |             except (
+ 379 |                 ConnectionRefusedError,
+ 380 |                 TimeoutError,
+ 381 |                 socket.timeout,
+ 382 |                 OSError,
+ 383 |                 xmlrpc.client.Fault,
+ 384 |                 xmlrpc.client.ProtocolError,
+ 385 |             ) as e:
+ 386 |                 print(f"[HEARTBEAT] [{self.ctrl_id}] Líder '{lider_atual}' falhou ({e}). Iniciando eleição...")
+ 387 |                 self.realizar_eleicao()
+ 388 | 
+ 389 |     # ------------------------------------------------------------------
+ 390 |     # Sincronização de Réplica na Inicialização / Reconexão
+ 391 |     # ------------------------------------------------------------------
+ 392 | 
+ 393 |     # Recuperação de réplica: ao religar, puxa o estado oficial dos pares antes de operar
+ 394 |     def _sincronizar_com_cluster(self) -> bool:
+ 395 |         """
+ 396 |         Consulta os pares ativos na inicialização para obter o estado oficial atual
+ 397 |         e atualizar imediatamente o banco JSON local antes de assumir operações.
+ 398 |         """
+ 399 |         with self._lock:
+ 400 |             pares = list(self._pares)
+ 401 | 
+ 402 |         respostas = []
+ 403 |         lider_descoberto = None
+ 404 | 
+ 405 |         if pares:
+ 406 |             executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(pares))
+ 407 |             futuros = {
+ 408 |                 executor.submit(lambda p: self._criar_proxy_par(p).obter_estado(), par): par
+ 409 |                 for par in pares
+ 410 |             }
+ 411 |             try:
+ 412 |                 for fut in concurrent.futures.as_completed(futuros, timeout=self._timeout_rpc + 0.2):
+ 413 |                     par = futuros[fut]
+ 414 |                     try:
+ 415 |                         estado = fut.result(timeout=0.1)
+ 416 |                         if isinstance(estado, dict):
+ 417 |                             respostas.append((par["id"], estado))
+ 418 |                             if estado.get("lider_id"):
+ 419 |                                 lider_descoberto = estado["lider_id"]
+ 420 |                     except Exception:
+ 421 |                         continue
+ 422 |             except (concurrent.futures.TimeoutError, TimeoutError):
+ 423 |                 pass
+ 424 |             finally:
+ 425 |                 executor.shutdown(wait=False, cancel_futures=True)
+ 426 | 
+ 427 |         if not respostas:
+ 428 |             print(f"[SYNC] [{self.ctrl_id}] Nenhum par ativo no momento; mantendo estado local.")
+ 429 |             return False
+ 430 | 
+ 431 |         inicializados = [
+ 432 |             (pid, est)
+ 433 |             for pid, est in respostas
+ 434 |             if not (
+ 435 |                 est.get("ultima_atualizacao") is None
+ 436 |                 and est.get("temperatura") is None
+ 437 |                 and est.get("umidade") is None
+ 438 |             )
+ 439 |         ]
+ 440 |         candidatos = inicializados if inicializados else respostas
+ 441 | 
+ 442 |         try:
+ 443 |             oficial = ClusterMiddleware.calcular_consenso([est for _, est in candidatos])
+ 444 |         except ErroQuorum:
+ 445 |             # Em empate (ex: reconexão com estado desatualizado ou 1 bizantino), prioriza líder ativo e timestamp mais recente
+ 446 |             validos = [
+ 447 |                 (pid, est)
+ 448 |                 for pid, est in candidatos
+ 449 |                 if _validar_limites_sensor(est.get("temperatura"), est.get("umidade"))
+ 450 |             ]
+ 451 |             if not validos:
+ 452 |                 print(f"[SYNC] [{self.ctrl_id}] Divergência entre pares na sincronização; aguardando consenso.")
+ 453 |                 return False
+ 454 |             _, oficial = max(
+ 455 |                 validos,
+ 456 |                 key=lambda item: (
+ 457 |                     1 if item[0] == item[1].get("lider_id") else 0,
+ 458 |                     str(item[1].get("ultima_atualizacao") or ""),
+ 459 |                 ),
+ 460 |             )
+ 461 | 
+ 462 |         if not _validar_limites_sensor(oficial.get("temperatura"), oficial.get("umidade")):
+ 463 |             print(f"[SYNC] [{self.ctrl_id}] Estado descartado por limites inválidos.")
+ 464 |             return False
+ 465 | 
+ 466 |         with self._lock:
+ 467 |             self._estado["temperatura"] = oficial.get("temperatura")
+ 468 |             self._estado["umidade"] = oficial.get("umidade")
+ 469 |             self._estado["bomba_ligada"] = bool(oficial.get("bomba_ligada", False))
+ 470 |             self._estado["exaustor_ligado"] = bool(oficial.get("exaustor_ligado", False))
+ 471 |             self._estado["ultima_atualizacao"] = oficial.get("ultima_atualizacao")
+ 472 |             if oficial.get("lider_id"):
+ 473 |                 self.lider_id = oficial["lider_id"]
+ 474 |                 self._estado["lider_id"] = self.lider_id
+ 475 |             self._salvar_estado()
+ 476 | 
+ 477 |         print(
+ 478 |             f"[SYNC] [{self.ctrl_id}] Banco local sincronizado com o cluster "
+ 479 |             f"(Temp={self._estado['temperatura']}, Umidade={self._estado['umidade']}, "
+ 480 |             f"Bomba={self._estado['bomba_ligada']}, Exaustor={self._estado['exaustor_ligado']})."
+ 481 |         )
+ 482 |         return True
+ 483 | 
+ 484 |     # ------------------------------------------------------------------
+ 485 |     # Consenso Dinâmico e Persistência Replicada (commit_estado)
+ 486 |     # ------------------------------------------------------------------
+ 487 | 
+ 488 |     # Votação P2P: cada nó avalia as regras de histerese (ou adultera em modo --byzantino)
+ 489 |     def coletar_voto_estado(self, proposta: dict | None = None) -> dict:
+ 490 |         """
+ 491 |         Retorna o voto deste controlador para validação por consenso antes do commit.
+ 492 |         Em modo --byzantino, retorna valores propositalmente corrompidos.
+ 493 |         """
+ 494 |         with self._lock:
+ 495 |             if self.byzantino:
+ 496 |                 return {
+ 497 |                     "temperatura": 999.9,
+ 498 |                     "umidade": -50.0,
+ 499 |                     "bomba_ligada": not bool(self._estado.get("bomba_ligada", False)),
+ 500 |                     "exaustor_ligado": not bool(self._estado.get("exaustor_ligado", False)),
+ 501 |                     "lider_id": self.lider_id,
+ 502 |                 }
+ 503 | 
+ 504 |             temp = self._estado.get("temperatura")
+ 505 |             umidade = self._estado.get("umidade")
+ 506 |             bomba_atual = bool(self._estado.get("bomba_ligada", False))
+ 507 |             exaustor_atual = bool(self._estado.get("exaustor_ligado", False))
+ 508 |             lider_atual = self.lider_id
+ 509 | 
+ 510 |         if isinstance(proposta, dict):
+ 511 |             if proposta.get("manual"):
+ 512 |                 nova_bomba = bool(proposta.get("bomba_ligada", bomba_atual))
+ 513 |                 novo_exaustor = bool(proposta.get("exaustor_ligado", exaustor_atual))
+ 514 |                 return {
+ 515 |                     "temperatura": temp,
+ 516 |                     "umidade": umidade,
+ 517 |                     "bomba_ligada": nova_bomba,
+ 518 |                     "exaustor_ligado": novo_exaustor,
+ 519 |                     "lider_id": lider_atual,
+ 520 |                 }
+ 521 | 
+ 522 |             prop_temp = proposta.get("temperatura", temp)
+ 523 |             prop_umid = proposta.get("umidade", umidade)
+ 524 |             if _validar_limites_sensor(prop_temp, prop_umid):
+ 525 |                 temp = float(prop_temp) if prop_temp is not None else None
+ 526 |                 umidade = float(prop_umid) if prop_umid is not None else None
+ 527 | 
+ 528 |         nova_bomba, novo_exaustor = _avaliar_regras_atuacao(
+ 529 |             temp, umidade, bomba_atual, exaustor_atual
+ 530 |         )
+ 531 |         return {
+ 532 |             "temperatura": temp,
+ 533 |             "umidade": umidade,
+ 534 |             "bomba_ligada": nova_bomba,
+ 535 |             "exaustor_ligado": novo_exaustor,
+ 536 |             "lider_id": lider_atual,
+ 537 |         }
+ 538 | 
+ 539 |     # Persistência replicada: todas as réplicas ativas gravam o mesmo JSON validado pelo Líder
+ 540 |     def commit_estado(self, estado_oficial: dict) -> dict:
+ 541 |         """
+ 542 |         Recebe o estado oficial validado por consenso pelo Líder e persiste no banco local.
+ 543 |         """
+ 544 |         if not isinstance(estado_oficial, dict):
+ 545 |             raise ValueError("estado_oficial deve ser um dicionário.")
+ 546 |         if not isinstance(estado_oficial.get("bomba_ligada"), bool):
+ 547 |             raise ValueError("Campo 'bomba_ligada' inválido.")
+ 548 |         if not isinstance(estado_oficial.get("exaustor_ligado"), bool):
+ 549 |             raise ValueError("Campo 'exaustor_ligado' inválido.")
+ 550 |         if not _validar_limites_sensor(estado_oficial.get("temperatura"), estado_oficial.get("umidade")):
+ 551 |             raise ValueError("Valores de sensor fora dos limites físicos permitidos.")
+ 552 | 
+ 553 |         with self._lock:
+ 554 |             self._estado["temperatura"] = estado_oficial.get("temperatura")
+ 555 |             self._estado["umidade"] = estado_oficial.get("umidade")
+ 556 |             self._estado["bomba_ligada"] = estado_oficial["bomba_ligada"]
+ 557 |             self._estado["exaustor_ligado"] = estado_oficial["exaustor_ligado"]
+ 558 |             self._estado["ultima_atualizacao"] = estado_oficial.get("ultima_atualizacao")
+ 559 |             if estado_oficial.get("lider_id"):
+ 560 |                 self.lider_id = str(estado_oficial["lider_id"])
+ 561 |             self._estado["lider_id"] = self.lider_id
+ 562 |             self._salvar_estado()
+ 563 | 
+ 564 |         return {"ok": True, "id": self.ctrl_id}
+ 565 | 
+ 566 |     # Apenas o Líder publica comandos MQTT após o consenso, evitando duplicidade no atuador
+ 567 |     def _publicar_comando(self, topico: str, acao: str) -> None:
+ 568 |         """Publica comando oficial para o atuador via MQTT (chamado apenas pelo Líder)."""
+ 569 |         payload = json.dumps({
+ 570 |             "acao": acao,
+ 571 |             "origem": self.ctrl_id,
+ 572 |             "timestamp": time.time(),
+ 573 |         })
+ 574 |         if self._mqtt_client:
+ 575 |             self._mqtt_client.publish(topico, payload, qos=1)
+ 576 | 
+ 577 |     # Coordenação do consenso: coleta votos em paralelo, resolve quórum e replica commit_estado
+ 578 |     def _coordenar_consenso_e_persistir(
+ 579 |         self,
+ 580 |         proposta: dict,
+ 581 |         publicar_atuacao: bool = True,
+ 582 |         forcar_publicacao: tuple[str, bool] | None = None,
+ 583 |     ) -> dict:
+ 584 |         """
+ 585 |         Executado pelo Líder: coleta votos dos pares ativos em paralelo, resolve o quórum
+ 586 |         dinâmico, faz commit síncrono do estado oficial em todas as réplicas e publica no MQTT.
+ 587 |         """
+ 588 |         with self._lock:
+ 589 |             estado_anterior = dict(self._estado)
+ 590 |             pares = list(self._pares)
+ 591 | 
+ 592 |         # Coleta votos em paralelo fora de self._lock para evitar contenção e atraso em cascata
+ 593 |         votos = [self.coletar_voto_estado(proposta)]
+ 594 |         pares_alcancaveis = []
+ 595 | 
+ 596 |         if pares:
+ 597 |             executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(pares))
+ 598 |             futuros = {
+ 599 |                 executor.submit(
+ 600 |                     lambda p: self._criar_proxy_par(p).coletar_voto_estado(proposta),
+ 601 |                     par,
+ 602 |                 ): par
+ 603 |                 for par in pares
+ 604 |             }
+ 605 |             try:
+ 606 |                 for fut in concurrent.futures.as_completed(futuros, timeout=self._timeout_rpc + 0.2):
+ 607 |                     par = futuros[fut]
+ 608 |                     try:
+ 609 |                         voto = fut.result(timeout=0.1)
+ 610 |                         if isinstance(voto, dict):
+ 611 |                             votos.append(voto)
+ 612 |                             pares_alcancaveis.append(par)
+ 613 |                     except Exception:
+ 614 |                         continue
+ 615 |             except (concurrent.futures.TimeoutError, TimeoutError):
+ 616 |                 pass
+ 617 |             finally:
+ 618 |                 executor.shutdown(wait=False, cancel_futures=True)
+ 619 | 
+ 620 |         if len(votos) == 1:
+ 621 |             print(f"[QUORUM DEGRADADO: 1/3 ativos] [{self.ctrl_id}] Operando em modo isolado.")
+ 622 | 
+ 623 |         estado_oficial = ClusterMiddleware.calcular_consenso(votos)
+ 624 |         estado_oficial["ultima_atualizacao"] = datetime.now(timezone.utc).isoformat()
+ 625 |         estado_oficial["lider_id"] = self.ctrl_id
+ 626 | 
+ 627 |         self.commit_estado(estado_oficial)
+ 628 | 
+ 629 |         if pares_alcancaveis:
+ 630 |             executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(pares_alcancaveis))
+ 631 |             futuros_commit = {
+ 632 |                 executor.submit(
+ 633 |                     lambda p: self._criar_proxy_par(p).commit_estado(estado_oficial),
+ 634 |                     par,
+ 635 |                 ): par
+ 636 |                 for par in pares_alcancaveis
+ 637 |             }
+ 638 |             try:
+ 639 |                 for fut in concurrent.futures.as_completed(futuros_commit, timeout=self._timeout_rpc + 0.2):
+ 640 |                     par = futuros_commit[fut]
+ 641 |                     try:
+ 642 |                         fut.result(timeout=0.1)
+ 643 |                     except Exception as e:
+ 644 |                         print(f"[REPLICA] [{self.ctrl_id}] Falha ao enviar commit para {par['id']}: {e}")
+ 645 |             except (concurrent.futures.TimeoutError, TimeoutError):
+ 646 |                 pass
+ 647 |             finally:
+ 648 |                 executor.shutdown(wait=False, cancel_futures=True)
+ 649 | 
+ 650 |         if publicar_atuacao and self.eh_lider():
+ 651 |             if forcar_publicacao is not None:
+ 652 |                 alvo, ligar = forcar_publicacao
+ 653 |                 topico = (
+ 654 |                     config.TOPIC_ATUADOR_BOMBA
+ 655 |                     if alvo == "bomba"
+ 656 |                     else config.TOPIC_ATUADOR_EXAUSTOR
+ 657 |                 )
+ 658 |                 self._publicar_comando(topico, "ligar" if ligar else "desligar")
+ 659 |             else:
+ 660 |                 if estado_oficial["exaustor_ligado"] != estado_anterior.get("exaustor_ligado", False):
+ 661 |                     acao = "ligar" if estado_oficial["exaustor_ligado"] else "desligar"
+ 662 |                     self._publicar_comando(config.TOPIC_ATUADOR_EXAUSTOR, acao)
+ 663 |                     print(f"[LIDER] [{self.ctrl_id}] Exaustor -> {acao.upper()} (consenso)")
+ 664 | 
+ 665 |                 if estado_oficial["bomba_ligada"] != estado_anterior.get("bomba_ligada", False):
+ 666 |                     acao = "ligar" if estado_oficial["bomba_ligada"] else "desligar"
+ 667 |                     self._publicar_comando(config.TOPIC_ATUADOR_BOMBA, acao)
+ 668 |                     print(f"[LIDER] [{self.ctrl_id}] Bomba -> {acao.upper()} (consenso)")
+ 669 | 
+ 670 |         return dict(estado_oficial)
+ 671 | 
+ 672 |     # ------------------------------------------------------------------
+ 673 |     # MQTT: Consumo de Sensores
+ 674 |     # ------------------------------------------------------------------
+ 675 | 
+ 676 |     # Inscrição MQTT QoS 1 nos tópicos dos sensores ao conectar ao broker
+ 677 |     def _on_connect(self, client, userdata, flags, reason_code, properties):
+ 678 |         if reason_code == 0:
+ 679 |             client.subscribe(config.TOPIC_TEMPERATURA, qos=1)
+ 680 |             client.subscribe(config.TOPIC_UMIDADE_SOLO, qos=1)
+ 681 |             print(f"[{self.ctrl_id}] Conectado ao broker MQTT. Assinando tópicos de sensores.")
+ 682 |         else:
+ 683 |             print(f"[{self.ctrl_id}] Falha na conexão MQTT: {reason_code}")
+ 684 | 
+ 685 |     def _on_message(self, client, userdata, msg):
+ 686 |         try:
+ 687 |             payload = json.loads(msg.payload.decode("utf-8"))
+ 688 |             valor = float(payload["valor"])
+ 689 |         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+ 690 |             print(f"[{self.ctrl_id}] Mensagem MQTT inválida: {e}")
+ 691 |             return
+ 692 | 
+ 693 |         if msg.topic == config.TOPIC_TEMPERATURA and not _validar_limites_sensor(valor, None):
+ 694 |             print(f"[{self.ctrl_id}] Temperatura fora da faixa física: {valor}")
+ 695 |             return
+ 696 |         if msg.topic == config.TOPIC_UMIDADE_SOLO and not _validar_limites_sensor(None, valor):
+ 697 |             print(f"[{self.ctrl_id}] Umidade fora da faixa física: {valor}")
+ 698 |             return
+ 699 | 
+ 700 |         with self._lock:
+ 701 |             proposta = {
+ 702 |                 "temperatura": self._estado.get("temperatura"),
+ 703 |                 "umidade": self._estado.get("umidade"),
+ 704 |             }
+ 705 |             if msg.topic == config.TOPIC_TEMPERATURA:
+ 706 |                 proposta["temperatura"] = valor
+ 707 |                 self._estado["temperatura"] = valor
+ 708 |                 print(f"[{self.ctrl_id}] Temperatura recebida: {valor:.2f}°C")
+ 709 |             elif msg.topic == config.TOPIC_UMIDADE_SOLO:
+ 710 |                 proposta["umidade"] = valor
+ 711 |                 self._estado["umidade"] = valor
+ 712 |                 print(f"[{self.ctrl_id}] Umidade recebida: {valor:.2f}%")
+ 713 |             else:
+ 714 |                 return
+ 715 | 
+ 716 |             sou_lider = (self.lider_id == self.ctrl_id)
+ 717 |             sem_lider = (self.lider_id is None)
+ 718 | 
+ 719 |         if sem_lider:
+ 720 |             self.realizar_eleicao()
+ 721 |             sou_lider = self.eh_lider()
+ 722 | 
+ 723 |         if sou_lider:
+ 724 |             try:
+ 725 |                 self._coordenar_consenso_e_persistir(proposta, publicar_atuacao=True)
+ 726 |             except ErroQuorum as e:
+ 727 |                 print(f"[{self.ctrl_id}] Consenso bloqueado: {e}")
+ 728 | 
+ 729 |     # ------------------------------------------------------------------
+ 730 |     # Interface XML-RPC para Cliente Direto e Pares
+ 731 |     # ------------------------------------------------------------------
+ 732 | 
+ 733 |     def obter_estado(self) -> dict:
+ 734 |         """Retorna o estado local da réplica (ou dados corrompidos em modo bizantino)."""
+ 735 |         with self._lock:
+ 736 |             if self.byzantino:
+ 737 |                 return {
+ 738 |                     "temperatura": 999.9,
+ 739 |                     "umidade": -50.0,
+ 740 |                     "bomba_ligada": not bool(self._estado.get("bomba_ligada", False)),
+ 741 |                     "exaustor_ligado": not bool(self._estado.get("exaustor_ligado", False)),
+ 742 |                     "ultima_atualizacao": datetime.now(timezone.utc).isoformat(),
+ 743 |                     "lider_id": self.lider_id,
+ 744 |                 }
+ 745 |             return dict(self._estado)
+ 746 | 
+ 747 |     def _executar_comando_atuador(self, alvo: str, ligar: bool) -> dict:
+ 748 |         """
+ 749 |         Valida e encaminha comando manual ao Líder (ou executa consenso se for o Líder).
+ 750 |         """
+ 751 |         if alvo not in ("bomba", "exaustor"):
+ 752 |             raise ValueError(f"Atuador inválido: {alvo}")
+ 753 |         if not isinstance(ligar, bool):
+ 754 |             raise ValueError("O parâmetro 'ligar' deve ser booleano (True ou False).")
+ 755 | 
+ 756 |         with self._lock:
+ 757 |             lider_atual = self.lider_id
+ 758 | 
+ 759 |         if lider_atual != self.ctrl_id:
+ 760 |             par_lider = self._encontrar_par(lider_atual)
+ 761 |             if par_lider is not None:
+ 762 |                 try:
+ 763 |                     proxy = criar_proxy_rpc(
+ 764 |                         par_lider["host"],
+ 765 |                         int(par_lider["port"]),
+ 766 |                         timeout=self._timeout_rpc * 2.5,
+ 767 |                     )
+ 768 |                     metodo = "comandar_bomba" if alvo == "bomba" else "comandar_exaustor"
+ 769 |                     return getattr(proxy, metodo)(ligar)
+ 770 |                 except (
+ 771 |                     ConnectionRefusedError,
+ 772 |                     TimeoutError,
+ 773 |                     socket.timeout,
+ 774 |                     OSError,
+ 775 |                     xmlrpc.client.ProtocolError,
+ 776 |                 ):
+ 777 |                     pass
+ 778 | 
+ 779 |             # Líder anterior indisponível ou indefinido: realiza eleição imediata
+ 780 |             novo_lider = self.realizar_eleicao()
+ 781 |             if novo_lider != self.ctrl_id:
+ 782 |                 par_novo = self._encontrar_par(novo_lider)
+ 783 |                 if par_novo is not None:
+ 784 |                     proxy = criar_proxy_rpc(
+ 785 |                         par_novo["host"],
+ 786 |                         int(par_novo["port"]),
+ 787 |                         timeout=self._timeout_rpc * 2.5,
+ 788 |                     )
+ 789 |                     metodo = "comandar_bomba" if alvo == "bomba" else "comandar_exaustor"
+ 790 |                     return getattr(proxy, metodo)(ligar)
+ 791 | 
+ 792 |         with self._lock:
+ 793 |             proposta = {
+ 794 |                 "manual": True,
+ 795 |                 "temperatura": self._estado.get("temperatura"),
+ 796 |                 "umidade": self._estado.get("umidade"),
+ 797 |                 "bomba_ligada": ligar if alvo == "bomba" else bool(self._estado.get("bomba_ligada", False)),
+ 798 |                 "exaustor_ligado": ligar if alvo == "exaustor" else bool(self._estado.get("exaustor_ligado", False)),
+ 799 |             }
+ 800 | 
+ 801 |         try:
+ 802 |             oficial = self._coordenar_consenso_e_persistir(
+ 803 |                 proposta,
+ 804 |                 publicar_atuacao=True,
+ 805 |                 forcar_publicacao=(alvo, ligar),
+ 806 |             )
+ 807 |         except ErroQuorum as e:
+ 808 |             raise xmlrpc.client.Fault(1, str(e)) from e
+ 809 | 
+ 810 |         nome = "Bomba" if alvo == "bomba" else "Exaustor"
+ 811 |         estado_txt = (
+ 812 |             ("ligada" if ligar else "desligada")
+ 813 |             if alvo == "bomba"
+ 814 |             else ("ligado" if ligar else "desligado")
+ 815 |         )
+ 816 |         oficial["sucesso"] = True
+ 817 |         oficial["mensagem"] = f"{nome} {estado_txt} com sucesso"
+ 818 |         return oficial
+ 819 | 
+ 820 |     def comandar_bomba(self, ligar: bool) -> dict:
+ 821 |         """Aciona ou desliga manualmente a bomba de irrigação com consenso do cluster."""
+ 822 |         return self._executar_comando_atuador("bomba", ligar)
+ 823 | 
+ 824 |     def comandar_exaustor(self, ligar: bool) -> dict:
+ 825 |         """Aciona ou desliga manualmente o exaustor com consenso do cluster."""
+ 826 |         return self._executar_comando_atuador("exaustor", ligar)
+ 827 | 
+ 828 |     # ------------------------------------------------------------------
+ 829 |     # Ciclo de Vida do Serviço
+ 830 |     # ------------------------------------------------------------------
+ 831 | 
+ 832 |     def iniciar_servidor_rpc(self) -> None:
+ 833 |         """Sobe servidor XML-RPC, sincroniza estado com pares ativos e inicia eleição/heartbeat."""
+ 834 |         self._parar_evento.clear()
+ 835 |         self._server = _ThreadedXMLRPCServer(
+ 836 |             (self.host, self.port),
+ 837 |             allow_none=True,
+ 838 |             logRequests=False,
+ 839 |         )
+ 840 |         self._server.register_instance(self)
+ 841 | 
+ 842 |         modo = " [MODO BIZANTINO]" if self.byzantino else ""
+ 843 |         print(f"[{self.ctrl_id}] Servidor XML-RPC ativo em {self.host}:{self.port}{modo}")
+ 844 | 
+ 845 |         threading.Thread(target=self._server.serve_forever, daemon=True).start()
+ 846 |         self._sincronizar_com_cluster()
+ 847 |         self.realizar_eleicao()
+ 848 |         threading.Thread(target=self._loop_heartbeat, daemon=True).start()
+ 849 | 
+ 850 |     def parar(self) -> None:
+ 851 |         """Encerra ordenadamente heartbeat, servidor XML-RPC e cliente MQTT."""
+ 852 |         self._parar_evento.set()
+ 853 |         if self._mqtt_client is not None:
+ 854 |             try:
+ 855 |                 self._mqtt_client.disconnect()
+ 856 |             except Exception:
+ 857 |                 pass
+ 858 |         if self._server is not None:
+ 859 |             try:
+ 860 |                 self._server.shutdown()
+ 861 |                 self._server.server_close()
+ 862 |             except Exception:
+ 863 |                 pass
+ 864 | 
+ 865 |     def iniciar(self) -> None:
+ 866 |         """Inicializa servidor XML-RPC, sincronização/eleição Bully e consumo MQTT."""
+ 867 |         self.iniciar_servidor_rpc()
+ 868 | 
+ 869 |         self._mqtt_client = mqtt.Client(
+ 870 |             mqtt.CallbackAPIVersion.VERSION2,
+ 871 |             client_id=f"controlador_{self.ctrl_id}",
+ 872 |         )
+ 873 |         self._mqtt_client.on_connect = self._on_connect
+ 874 |         self._mqtt_client.on_message = self._on_message
+ 875 |         self._mqtt_client.connect(config.MQTT_HOST, config.MQTT_PORT, config.MQTT_KEEPALIVE)
+ 876 | 
+ 877 |         print(f"[{self.ctrl_id}] Controlador pronto. Consumindo sensores MQTT.")
+ 878 |         try:
+ 879 |             self._mqtt_client.loop_forever()
+ 880 |         except KeyboardInterrupt:
+ 881 |             print(f"\n[{self.ctrl_id}] Encerrando controlador...")
+ 882 |         finally:
+ 883 |             self.parar()
+ 884 | 
+ 885 | 
+ 886 | if __name__ == "__main__":
+ 887 |     parser = argparse.ArgumentParser(description="Controlador Distribuído da Estufa")
+ 888 |     parser.add_argument(
+ 889 |         "numero",
+ 890 |         nargs="?",
+ 891 |         help="Número do controlador (1, 2 ou 3)",
+ 892 |     )
+ 893 |     parser.add_argument("--id", help="Identificador opcional (ex: ctrl_1)")
+ 894 |     parser.add_argument("--port", type=int, help="Porta XML-RPC opcional")
+ 895 |     parser.add_argument("--data", help="Arquivo JSON opcional")
+ 896 |     parser.add_argument("--host", default="127.0.0.1", help="Host do servidor XML-RPC")
+ 897 |     parser.add_argument("--byzantino", action="store_true", help="Ativa simulação de falha bizantina")
+ 898 |     args = parser.parse_args()
+ 899 | 
+ 900 |     identificador = args.numero or args.id
+ 901 |     if not identificador:
+ 902 |         parser.error("Informe o número do controlador (1, 2 ou 3) ou --id.")
+ 903 | 
+ 904 |     ctrl = Controlador(
+ 905 |         ctrl_id=identificador,
+ 906 |         port=args.port,
+ 907 |         data_file=args.data,
+ 908 |         host=args.host,
+ 909 |         byzantino=args.byzantino,
+ 910 |     )
+ 911 |     ctrl.iniciar()
+<<< FIM DO ARQUIVO: estufa/controlador.py (Linha Original 911) <<<
+##############################################################################################################
+
+
+##############################################################################################################
+# ARQUIVO [08/11]: estufa/cliente.py
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\estufa\cliente.py
+# CATEGORIA / GRUPO: 1. NÚCLEO DO SISTEMA DISTRIBUÍDO (MÓDULOS PYTHON EM estufa/)
+# DESCRIÇÃO: CLI interativa de monitoramento e envio de comandos com failover
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 130
+# TOTAL DE LINHAS NO ORIGINAL: 130 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: estufa/cliente.py (Linha Original 1) >>>
+   1 | """
+   2 | cliente.py — Interface de linha de comando para monitoramento e controle da estufa.
+   3 | 
+   4 | Comunica-se diretamente com os controladores ativos via camada lógica XML-RPC
+   5 | (ClusterMiddleware), com descoberta automática de líder e failover transparente
+   6 | caso algum controlador seja encerrado durante a apresentação.
+   7 | 
+   8 | Uso:
+   9 |     python -m estufa.cliente
+  10 |     python -m estufa.cliente --auto [--intervalo SEGUNDOS]
+  11 | """
+  12 | 
+  13 | import argparse
+  14 | import socket
+  15 | import time
+  16 | import xmlrpc.client
+  17 | from estufa.middleware import ClusterMiddleware, ErroQuorum
+  18 | 
+  19 | 
+  20 | def exibir_estado(estado: dict) -> None:
+  21 |     """Formata e exibe no terminal o estado consolidado da estufa."""
+  22 |     print("\n" + "=" * 52)
+  23 |     print("             ESTADO ATUAL DA ESTUFA")
+  24 |     print("=" * 52)
+  25 | 
+  26 |     temp = estado.get("temperatura")
+  27 |     umidade = estado.get("umidade", estado.get("umidade_solo"))
+  28 |     bomba = estado.get("bomba_ligada")
+  29 |     exaustor = estado.get("exaustor_ligado")
+  30 |     lider = estado.get("lider_id") or "N/A"
+  31 | 
+  32 |     print(f"  Temperatura:   {f'{temp:.2f}°C' if temp is not None else 'N/A'}")
+  33 |     print(f"  Umidade solo:  {f'{umidade:.2f}%' if umidade is not None else 'N/A'}")
+  34 |     print(f"  Bomba:         {'LIGADA' if bomba else 'DESLIGADA'}")
+  35 |     print(f"  Exaustor:      {'LIGADO' if exaustor else 'DESLIGADO'}")
+  36 |     print(f"  Líder atual:   {lider}")
+  37 |     print("=" * 52 + "\n")
+  38 | 
+  39 | 
+  40 | # Tratamento resiliente de falhas RPC/rede: cliente continua operando mesmo com queda de nós
+  41 | def _executar_acao_segura(funcao, *args) -> None:
+  42 |     """Executa uma chamada ao cluster tratando falhas de quórum ou rede sem abortar o cliente."""
+  43 |     try:
+  44 |         resultado = funcao(*args)
+  45 |         if isinstance(resultado, dict) and "mensagem" in resultado:
+  46 |             lider = resultado.get("lider_id", "N/A")
+  47 |             print(f"[OK] {resultado['mensagem']} (via líder: {lider})")
+  48 |         elif isinstance(resultado, dict):
+  49 |             exibir_estado(resultado)
+  50 |         else:
+  51 |             print(f"[OK] {resultado}")
+  52 |     except ErroQuorum as e:
+  53 |         print(f"\n[FALHA DE CONSENSO/QUÓRUM] {e}")
+  54 |     except xmlrpc.client.Fault as e:
+  55 |         print(f"\n[ERRO DO CONTROLADOR] {e.faultString}")
+  56 |     except (ConnectionRefusedError, TimeoutError, socket.timeout, OSError) as e:
+  57 |         print(f"\n[CLUSTER INDISPONÍVEL] Nenhum controlador respondeu: {e}")
+  58 | 
+  59 | 
+  60 | def menu_interativo(middleware: ClusterMiddleware) -> None:
+  61 |     """Loop principal do menu interativo de operação direta com o cluster."""
+  62 |     acoes = {
+  63 |         "2": ("Ligar bomba", middleware.comandar_bomba, True),
+  64 |         "3": ("Desligar bomba", middleware.comandar_bomba, False),
+  65 |         "4": ("Ligar exaustor", middleware.comandar_exaustor, True),
+  66 |         "5": ("Desligar exaustor", middleware.comandar_exaustor, False),
+  67 |     }
+  68 | 
+  69 |     while True:
+  70 |         nos = ", ".join(f"{c['id']}:{c['port']}" for c in middleware.controladores)
+  71 |         print("\nMENU — Estufa Agrícola Distribuída (RPC Direto)")
+  72 |         print(f"  [Cluster: {nos}]")
+  73 |         print("  1. Consultar estado atual (com consenso)")
+  74 |         print("  2. Ligar bomba de irrigação")
+  75 |         print("  3. Desligar bomba de irrigação")
+  76 |         print("  4. Ligar exaustor")
+  77 |         print("  5. Desligar exaustor")
+  78 |         print("  6. Verificar saúde e liderança dos controladores")
+  79 |         print("  0. Sair")
+  80 | 
+  81 |         try:
+  82 |             escolha = input("\nEscolha: ").strip()
+  83 |         except (EOFError, KeyboardInterrupt):
+  84 |             print("\nEncerrando cliente.")
+  85 |             break
+  86 | 
+  87 |         if escolha == "1":
+  88 |             _executar_acao_segura(middleware.obter_estado)
+  89 |         elif escolha in acoes:
+  90 |             _, funcao, valor = acoes[escolha]
+  91 |             _executar_acao_segura(funcao, valor)
+  92 |         elif escolha == "6":
+  93 |             saude = middleware.verificar_saude()
+  94 |             print(
+  95 |                 f"\nSaúde do Cluster ({saude['ativos']}/{saude['total']} ativos | "
+  96 |                 f"Líder: {saude.get('lider_id') or 'indefinido'}):"
+  97 |             )
+  98 |             for ctrl_id, status in saude["detalhes"].items():
+  99 |                 tag = "[OK]" if status.startswith("ok") else "[FALHA]"
+ 100 |                 print(f"  {tag} {ctrl_id}: {status}")
+ 101 |         elif escolha == "0":
+ 102 |             print("Encerrando cliente.")
+ 103 |             break
+ 104 |         else:
+ 105 |             print("[AVISO] Opção inválida.")
+ 106 | 
+ 107 | 
+ 108 | def modo_automatico(middleware: ClusterMiddleware, intervalo: float = 3.0) -> None:
+ 109 |     """Consulta e exibe periodicamente o estado oficial da estufa."""
+ 110 |     print(f"Modo automático ativo (intervalo: {intervalo}s). Pressione Ctrl+C para encerrar.")
+ 111 |     try:
+ 112 |         while True:
+ 113 |             _executar_acao_segura(middleware.obter_estado)
+ 114 |             time.sleep(intervalo)
+ 115 |     except KeyboardInterrupt:
+ 116 |         print("\nEncerrando.")
+ 117 | 
+ 118 | 
+ 119 | if __name__ == "__main__":
+ 120 |     parser = argparse.ArgumentParser(description="Cliente — Estufa Agrícola Distribuída")
+ 121 |     parser.add_argument("--auto", action="store_true", help="Modo de consulta contínua")
+ 122 |     parser.add_argument("--intervalo", type=float, default=3.0, help="Intervalo do modo contínuo (s)")
+ 123 |     args = parser.parse_args()
+ 124 | 
+ 125 |     # Middleware embarcado no cliente: descobre e roteia direto para o controlador líder
+ 126 |     mw = ClusterMiddleware()
+ 127 |     if args.auto:
+ 128 |         modo_automatico(mw, intervalo=args.intervalo)
+ 129 |     else:
+ 130 |         menu_interativo(mw)
+<<< FIM DO ARQUIVO: estufa/cliente.py (Linha Original 130) <<<
+##############################################################################################################
+
+
+##############################################################################################################
+# ARQUIVO [09/11]: requirements.txt
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\requirements.txt
+# CATEGORIA / GRUPO: 2. INFRAESTRUTURA E CONFIGURAÇÕES
+# DESCRIÇÃO: Dependências Python do projeto
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 3
+# TOTAL DE LINHAS NO ORIGINAL: 3 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: requirements.txt (Linha Original 1) >>>
+   1 | paho-mqtt==2.1.0
+   2 | pytest==8.3.3
+   3 | pytest-timeout==2.3.1
+<<< FIM DO ARQUIVO: requirements.txt (Linha Original 3) <<<
+##############################################################################################################
+
+
+##############################################################################################################
+# ARQUIVO [10/11]: docker-compose.yml
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\docker-compose.yml
+# CATEGORIA / GRUPO: 2. INFRAESTRUTURA E CONFIGURAÇÕES
+# DESCRIÇÃO: Orquestração do broker Eclipse Mosquitto via Docker
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 16
+# TOTAL DE LINHAS NO ORIGINAL: 16 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: docker-compose.yml (Linha Original 1) >>>
+   1 | version: "3.8"
+   2 | 
+   3 | services:
+   4 |   mosquitto:
+   5 |     image: eclipse-mosquitto:2.0
+   6 |     container_name: estufa_mqtt_broker
+   7 |     ports:
+   8 |       - "1883:1883"
+   9 |       - "9001:9001"
+  10 |     volumes:
+  11 |       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+  12 |       - mosquitto_data:/mosquitto/data
+  13 |     restart: unless-stopped
+  14 | 
+  15 | volumes:
+  16 |   mosquitto_data:
+<<< FIM DO ARQUIVO: docker-compose.yml (Linha Original 16) <<<
+##############################################################################################################
+
+
+##############################################################################################################
+# ARQUIVO [11/11]: mosquitto/mosquitto.conf
+# CAMINHO ABSOLUTO: C:\Users\anybo\Documents\Projects\projetos-sistemas-distribuidos\trabalho_pratico1\mosquitto\mosquitto.conf
+# CATEGORIA / GRUPO: 2. INFRAESTRUTURA E CONFIGURAÇÕES
+# DESCRIÇÃO: Arquivo de configuração de persistência e portas do Mosquitto
+# LINHA INICIAL ORIGINAL: Linha 1
+# LINHA FINAL ORIGINAL  : Linha 5
+# TOTAL DE LINHAS NO ORIGINAL: 5 linhas
+##############################################################################################################
+>>> INÍCIO DO ARQUIVO: mosquitto/mosquitto.conf (Linha Original 1) >>>
+   1 | listener 1883
+   2 | allow_anonymous true
+   3 | persistence true
+   4 | persistence_location /mosquitto/data/
+   5 | log_dest stdout
+<<< FIM DO ARQUIVO: mosquitto/mosquitto.conf (Linha Original 5) <<<
+##############################################################################################################
+
+
