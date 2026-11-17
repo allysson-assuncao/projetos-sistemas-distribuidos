@@ -20,7 +20,7 @@
 
 - **Source Root:** `trabalho_pratico1/estufa/`
 - **Test Root:** `trabalho_pratico1/tests/`
-- **Entry Point:** `python -m estufa.<module>` (`broker_local`, `middleware_server`, `controlador`, `atuador`, `sensor`, `cliente`)
+- **Entry Point:** `python -m estufa.<module>` (`broker_local`, `controlador`, `atuador`, `sensor`, `cliente`)
 - **Build Output:** N/A (interpreted Python modules; runtime JSON state files `data_ctrl_*.json` in `trabalho_pratico1/`)
 
 ---
@@ -43,9 +43,9 @@
 
 ## API Contract (if applicable)
 
-- **API Type:** XML-RPC (`http://localhost:9000`, `http://localhost:8001..8003`) & MQTT v3.1.1 (`localhost:1883`)
+- **API Type:** XML-RPC (`http://localhost:8001..8003` peer-to-peer & client-to-controller) & MQTT v3.1.1 (`localhost:1883`)
 - **Spec Location:** `trabalho_pratico1/estufa/config.py` and `trabalho_pratico1/README.md`
-- **Base URL (dev):** `http://localhost:9000` (Middleware XML-RPC), `mqtt://localhost:1883` (MQTT Broker)
+- **Base URL (dev):** `http://localhost:8001..8003` (Controllers XML-RPC), `mqtt://localhost:1883` (MQTT Broker)
 
 ---
 
@@ -60,4 +60,4 @@
 ## Notes
 
 - Lab environment constraint: Windows machines without Docker and without Administrator privileges.
-- All services must bind strictly to `localhost` (`127.0.0.1`) on user-space ports (`1883`, `8001`, `8002`, `8003`, `9000`).
+- All services must bind strictly to `localhost` (`127.0.0.1`) on user-space ports (`1883`, `8001`, `8002`, `8003`).
