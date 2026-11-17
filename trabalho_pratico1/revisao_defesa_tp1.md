@@ -6,7 +6,7 @@ Material de consulta rápida para localizar no código cada mecanismo distribuí
 
 ## 1. Onde Mostrar Cada Mecanismo no Código (Consulta Rápida)
 
-| O que o professor pedir para mostrar | Arquivo | Símbolo / Função | Linhas |
+| Mecanismos para Demonstrar | Arquivo | Símbolo / Função | Linhas |
 |---|---|---|---|
 | **Eleição de líder (Algoritmo Bully)** e guarda de rank | `estufa/controlador.py` | `ping`, `iniciar_eleicao`, `anunciar_lider`, `realizar_eleicao` | `L208–L341` |
 | **Heartbeat** e detecção de queda do líder | `estufa/controlador.py` | `Controlador._loop_heartbeat` | `L352–L387` |
