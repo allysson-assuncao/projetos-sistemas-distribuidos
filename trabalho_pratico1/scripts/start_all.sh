@@ -11,6 +11,8 @@ INTERVALO="${3:-2.0}"
 
 if [ -x "$ROOT/.venv/bin/python" ]; then
     PYTHON="$ROOT/.venv/bin/python"
+elif [ -x "$ROOT/.venv/Scripts/python.exe" ]; then
+    PYTHON="$ROOT/.venv/Scripts/python.exe"
 elif command -v python3 > /dev/null 2>&1; then
     PYTHON="python3"
 else

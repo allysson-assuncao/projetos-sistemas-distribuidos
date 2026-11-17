@@ -91,23 +91,23 @@ flowchart TD
 ```powershell
 cd trabalho_pratico1
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+./.venv/Scripts/python.exe -m pip install -r requirements.txt
 ```
 
 ### Inicialização Interativa em 6 Janelas + Cliente
 ```powershell
 # Limpar processos residuais e arquivos data_ctrl_*.json
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reset_demo.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/reset_demo.ps1
 
 # Subir Broker, 3 Controladores, Atuador e Sensor em janelas independentes
 # (Cada janela já vem com o comando no histórico: Ctrl+C + Seta para Cima para editar e reiniciar!)
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start_all.ps1
 
 # Opcional: iniciar sensor com valores iniciais customizados
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Temp 38 -Umidade 25 -Intervalo 2
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start_all.ps1 -Temp 38 -Umidade 25 -Intervalo 2
 
 # No terminal atual, iniciar o Cliente Direto:
-.\.venv\Scripts\python.exe -m estufa.cliente
+./.venv/Scripts/python.exe -m estufa.cliente
 ```
 
 > **Execução no Linux:** Utilize `./scripts/start_all.sh [TEMP] [UMIDADE] [INTERVALO]`. Caso tenha Docker ativo, `docker compose up -d` sobe o Mosquitto (`mosquitto/mosquitto.conf`); caso contrário, o script utiliza automaticamente `estufa.broker_local`.
@@ -134,10 +134,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Tem
 
 ```powershell
 # Suíte completa de testes unitários e de integração (34 testes)
-.\.venv\Scripts\pytest.exe .\tests -v -p no:cacheprovider
+./.venv/Scripts/pytest.exe ./tests -v -p no:cacheprovider
 
 # Validação End-to-End com subprocessos reais (6 etapas: Bully, MQTT, Failover 3->2->1, Sync, Bizantino)
-.\.venv\Scripts\python.exe .\scripts\validate_e2e.py
+./.venv/Scripts/python.exe ./scripts/validate_e2e.py
 ```
 
 ---

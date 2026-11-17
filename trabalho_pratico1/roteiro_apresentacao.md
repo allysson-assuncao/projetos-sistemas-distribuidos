@@ -10,26 +10,26 @@ No diretório `trabalho_pratico1/`:
 
 ```powershell
 # 1. Limpar processos antigos e bancos JSON residuais
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reset_demo.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/reset_demo.ps1
 
 # 2. Subir os 6 serviços em janelas independentes
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start_all.ps1
 
 # 3. No terminal principal, abrir o Cliente CLI (7º processo)
-.\.venv\Scripts\python.exe -m estufa.cliente
+./.venv/Scripts/python.exe -m estufa.cliente
 ```
 
 **Comandos individuais por processo:**
 
 | Processo | Comando |
 |---|---|
-| Broker MQTT (`:1883`) | `.\.venv\Scripts\python.exe -u -m estufa.broker_local` |
-| Controlador 1 (`:8001`) | `.\.venv\Scripts\python.exe -u -m estufa.controlador 1` |
-| Controlador 2 (`:8002`) | `.\.venv\Scripts\python.exe -u -m estufa.controlador 2` |
-| Controlador 3 (`:8003`) | `.\.venv\Scripts\python.exe -u -m estufa.controlador 3` |
-| Atuador MQTT | `.\.venv\Scripts\python.exe -u -m estufa.atuador` |
-| Sensor Contínuo | `.\.venv\Scripts\python.exe -u -m estufa.sensor --temp 28 --umidade 42 --intervalo 2` |
-| Cliente CLI | `.\.venv\Scripts\python.exe -m estufa.cliente` |
+| Broker MQTT (`:1883`) | `./.venv/Scripts/python.exe -u -m estufa.broker_local` |
+| Controlador 1 (`:8001`) | `./.venv/Scripts/python.exe -u -m estufa.controlador 1` |
+| Controlador 2 (`:8002`) | `./.venv/Scripts/python.exe -u -m estufa.controlador 2` |
+| Controlador 3 (`:8003`) | `./.venv/Scripts/python.exe -u -m estufa.controlador 3` |
+| Atuador MQTT | `./.venv/Scripts/python.exe -u -m estufa.atuador` |
+| Sensor Contínuo | `./.venv/Scripts/python.exe -u -m estufa.sensor --temp 28 --umidade 42 --intervalo 2` |
+| Cliente CLI | `./.venv/Scripts/python.exe -m estufa.cliente` |
 
 ---
 
@@ -42,7 +42,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1
 
 ### Passo 2 — Alteração de Parâmetros do Sensor (Malha Fechada Autônoma)
 - **Execução:** No terminal do **Sensor**, interromper com `Ctrl+C` e reiniciar com valores fora da faixa ideal:
-  `.\.venv\Scripts\python.exe -u -m estufa.sensor --temp 38 --umidade 24 --intervalo 2`
+  `./.venv/Scripts/python.exe -u -m estufa.sensor --temp 38 --umidade 24 --intervalo 2`
 - **Referência no código:** `estufa/controlador.py` (`_avaliar_regras_atuacao`, `L58–L79`; `_coordenar_consenso_e_persistir`, `L578–L670`), `estufa/atuador.py` (`L42–L63`) e `estufa/sensor.py` (`L37–L103`).
 - **Explicação:** Ao cruzar os limiares (`Temp > 35°C` e `Umidade < 30%`), os controladores votam a transição de estado, apenas o líder `ctrl_3` publica em `estufa/atuadores/*`, o Atuador aciona bomba e exaustor confirmando em `estufa/status/*`, e o Sensor passa a reduzir a temperatura e elevar a umidade em malha fechada.
 
@@ -68,7 +68,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1
 
 ### Passo 7 — Falha Bizantina (`--byzantino`) e `ErroQuorum`
 - **Execução (Cenário A — 3 ativos com 1 bizantino):** Interromper `ctrl_2` com `Ctrl+C` e reiniciá-lo com a flag `--byzantino`:
-  `.\.venv\Scripts\python.exe -u -m estufa.controlador 2 --byzantino`
+  `./.venv/Scripts/python.exe -u -m estufa.controlador 2 --byzantino`
   No Cliente, consultar estado (`1`), enviar comando (`3`) e comparar `data_ctrl_1.json` e `data_ctrl_3.json`.
 - **Referência no código:** `estufa/controlador.py` (`coletar_voto_estado`, `L489–L502`) e `estufa/middleware.py` (`calcular_consenso`, `L156–L165`).
 - **Explicação (Cenário A):** Mesmo com `ctrl_2` respondendo valores adulterados (`999.9°C`, `-50%` e atuadores invertidos), o quórum majoritário `2/3` formado por `ctrl_1` e `ctrl_3` descarta o voto divergente antes do `commit_estado`, preservando os bancos honestos e a leitura do cliente.
