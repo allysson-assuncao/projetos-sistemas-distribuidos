@@ -1,143 +1,143 @@
-# Trabalho Prático 1 — Sistemas Distribuídos
-## Controle Automatizado de Estufa Agrícola com MQTT e XML-RPC
+# Trabalho Prático 1 — Controle Automatizado de Estufa Agrícola Distribuída
 
-**Relatório Técnico:** [`relatorio/relatorio.md`](relatorio/relatorio.md)
-
-Implementação de um sistema distribuído para monitoramento e acionamento automatizado de uma estufa agrícola. A arquitetura integra mensageria assíncrona publicar/assinar (MQTT) para telemetria e atuação, invocação remota de procedimentos (XML-RPC) para coordenação entre processos, replicação ativa de controladores com votação majoritária ($N = 2f + 1 = 3$) e deduplicação de comandos no atuador via cache LRU.
+Sistema distribuído com **comunicação direta Cliente ↔ Controladores via XML-RPC**, **eleição dinâmica de líder (Algoritmo Bully)**, **consenso com persistência replicada síncrona (`data_ctrl_1..3.json`)** e **malha fechada IoT via MQTT v3.1.1 QoS 1**, projetado para operar nativamente no **Windows 11 sem Docker e sem permissões de Administrador** (e com suporte opcional a Docker/Linux).
 
 ---
 
-## Arquitetura do Sistema
+## 1. Arquitetura do Sistema (Alinhada à Figura 1 do Enunciado)
+
+Na arquitetura original do enunciado ([Trabalho Prático 1 - SD.pdf](./Trabalho%20Prático%201%20-%20SD.pdf)), o **MIDDLEWARE** não é um processo intermediário externo (que criaria ponto único de falha), mas sim a **camada lógica distribuída que engloba os próprios Controladores de Processo** e seus mecanismos de invocação direta, sincronização P2P, tolerância a falhas e replicação de armazenamento.
 
 ```mermaid
-graph TD
-    Sensor[Sensores MQTT] -->|pub :1883| Broker[(Broker Mosquitto)]
-    Broker -->|sub| Ctrl1[Controlador 1 :8001]
-    Broker -->|sub| Ctrl2[Controlador 2 :8002]
-    Broker -->|sub| Ctrl3[Controlador 3 :8003]
-    Ctrl1 -->|pub| Broker
-    Ctrl2 -->|pub| Broker
-    Ctrl3 -->|pub| Broker
-    Broker -->|sub| Actuator[Atuador com Cache LRU]
-    Client[Cliente CLI] -->|XML-RPC :9000| Middleware[Servidor de Middleware]
-    Middleware -->|XML-RPC :8001| Ctrl1
-    Middleware -->|XML-RPC :8002| Ctrl2
-    Middleware -->|XML-RPC :8003| Ctrl3
+flowchart LR
+    subgraph ClienteLayer["Camada Cliente"]
+        CLI["Cliente CLI<br/>(estufa.cliente + ClusterMiddleware)"]
+    end
+
+    subgraph Middleware["MIDDLEWARE (Camada Lógica XML-RPC, Liderança e Consenso)"]
+        direction TB
+        C1["Controlador 1<br/>(127.0.0.1:8001 | rank 1)"]
+        C2["Controlador 2<br/>(127.0.0.1:8002 | rank 2)"]
+        C3["Controlador 3<br/>(127.0.0.1:8003 | rank 3 | Líder padrão)"]
+
+        DB1[("Armazenamento 1<br/>data_ctrl_1.json")]
+        DB2[("Armazenamento 2<br/>data_ctrl_2.json")]
+        DB3[("Armazenamento 3<br/>data_ctrl_3.json")]
+
+        C1 <-->|"XML-RPC P2P: Eleição Bully, Heartbeat,<br/>Votação (coletar_voto_estado) e Sync"| C2
+        C2 <-->|"XML-RPC P2P: Eleição Bully, Heartbeat,<br/>Votação (coletar_voto_estado) e Sync"| C3
+        C1 <-->|"XML-RPC P2P: Eleição Bully, Heartbeat,<br/>Votação (coletar_voto_estado) e Sync"| C3
+
+        C1 <-->|"Replicação Síncrona<br/>(commit_estado atômico)"| DB1
+        C2 <-->|"Replicação Síncrona<br/>(commit_estado atômico)"| DB2
+        C3 <-->|"Replicação Síncrona<br/>(commit_estado atômico)"| DB3
+    end
+
+    subgraph IoTLayer["Camada IoT (MQTT v3.1.1 QoS 1 — 127.0.0.1:1883)"]
+        BROKER(("Broker MQTT<br/>(broker_local :1883)"))
+        SENS["Sensor Contínuo<br/>(estufa.sensor)"]
+        ATU["Atuador Bomba/Exaustor<br/>(estufa.atuador)"]
+    end
+
+    CLI <-->|"Invocação de Métodos (XML-RPC Direto)<br/>obter_estado, comandar_*, verificar_saude<br/>com Failover Transparente"| C1
+    CLI <-->|"Invocação de Métodos (XML-RPC Direto)<br/>Failover Automático"| C2
+    CLI <-->|"Invocação de Métodos (XML-RPC Direto)<br/>Roteamento Preferencial ao Líder"| C3
+
+    SENS -->|"Pub QoS 1:<br/>estufa/sensores/temperatura<br/>estufa/sensores/umidade_solo"| BROKER
+    BROKER -->|"Sub QoS 1:<br/>estufa/sensores/*"| C1
+    BROKER -->|"Sub QoS 1:<br/>estufa/sensores/*"| C2
+    BROKER -->|"Sub QoS 1:<br/>estufa/sensores/*"| C3
+    C3 -->|"Pub QoS 1 (APENAS O LÍDER após Consenso):<br/>estufa/atuadores/bomba<br/>estufa/atuadores/exaustor"| BROKER
+    BROKER -->|"Sub QoS 1:<br/>estufa/atuadores/*"| ATU
+    ATU -->|"Pub QoS 1:<br/>estufa/status/bomba<br/>estufa/status/exaustor"| BROKER
+    BROKER -->|"Sub QoS 1 (Malha Fechada):<br/>estufa/status/*"| SENS
 ```
 
-### Componentes e Estrutura
+### Legenda das Camadas, Setas e Comunicações
 
-| Componente | Arquivo | Papel Arquitetural |
+| Elemento / Seta | Protocolo | Direção e Significado |
 |---|---|---|
-| **Configuração** | `estufa/config.py` | Tópicos MQTT, portas XML-RPC, limiares de controle e parâmetros de quórum |
-| **Sensor** | `estufa/sensor.py` | Publica leituras simuladas de temperatura e umidade do solo via MQTT (QoS 1) |
-| **Controlador (×3)** | `estufa/controlador.py` | Consome sensores, avalia regras de controle, persiste estado em JSON e expõe servidor XML-RPC (`:8001`–`:8003`) |
-| **Motor de Votação** | `estufa/middleware.py` | Invoca as réplicas em paralelo e apura quórum mínimo (2 de 3) |
-| **Servidor de Middleware** | `estufa/middleware_server.py` | Processo XML-RPC na porta `9000`; ponto único de acesso para o cliente e para sincronização de réplicas |
-| **Atuador** | `estufa/atuador.py` | Subscreve aos tópicos de acionamento e filtra comandos redundantes das réplicas com cache LRU |
-| **Cliente** | `estufa/cliente.py` | Interface CLI para consulta de estado, acionamento manual e verificação de saúde do cluster |
+| **Camada Cliente → Controladores** (`Invocação de Métodos`) | XML-RPC sobre HTTP (`127.0.0.1:8001..8003`) | O `ClusterMiddleware` embarcado no cliente consulta todos os nós ativos (`obter_estado` com consenso), roteia comandos (`comandar_bomba`, `comandar_exaustor`) ao líder atual e faz failover automático se um controlador cair. |
+| **Controlador ↔ Controlador** (`Sincronização, Eleição e Tolerância a Falhas`) | XML-RPC P2P (`ping`, `iniciar_eleicao`, `anunciar_lider`, `coletar_voto_estado`, `commit_estado`) | Comunicação direta entre os 3 controladores para monitorar o líder por heartbeat, eleger novo líder (Bully), validar votos antes de gravar e sincronizar réplicas que retornarem após queda. |
+| **Controlador ↔ Armazenamento** (`Replicação`) | Disco local JSON atômico (`data_ctrl_1..3.json`) | Após apurar o quórum, o líder envia `commit_estado` síncrono para todas as réplicas ativas gravarem exatamente os mesmos dados oficiais. |
+| **Sensor → Broker → Controladores** (`Telemetria`) | MQTT v3.1.1 (`QoS 1`, `:1883`) | `estufa.sensor` publica temperatura e umidade continuamente; os 3 controladores assinam ambos os tópicos e participam da votação iniciada pelo líder. |
+| **Líder → Broker → Atuador → Sensor** (`Malha Fechada`) | MQTT v3.1.1 (`QoS 1`, `:1883`) | Somente o Líder publica comandos em `estufa/atuadores/*` após consenso. O Atuador executa e publica confirmação em `estufa/status/*`, invertendo a curva física gerada pelo Sensor. |
 
 ---
 
-## Mecanismos de Sistemas Distribuídos
+## 2. Os 7 Processos e Parâmetros de Execução
 
-1. **Transparência de Acesso e Replicação:** O cliente comunica-se exclusivamente com o servidor de Middleware (`:9000`), sem conhecer a localização individual das réplicas (`:8001`–`:8003`).
-2. **Transferência de Estado na Inicialização (*State Transfer*):** Ao iniciar ou recuperar-se de falha, cada controlador sincroniza seu estado consultando o quórum vigente no Middleware antes de consumir mensagens MQTT.
-3. **Deduplicação de Comandos:**
-   - **Acionamento autônomo:** Cada réplica calcula `comando_id = MD5(acao + sensor_timestamp)`. Como todas processam o mesmo evento publicado pelo sensor, geram o mesmo identificador.
-   - **Acionamento manual:** O Middleware gera um `UUID4` por requisição e o repassa às 3 réplicas.
-   - O atuador mantém um cache LRU (`OrderedDict`) dos últimos `comando_id` processados, executando cada transição física uma única vez.
-
----
-
-## Pré-requisitos e Instalação
-
-- **Python 3.10+**
-- **Broker MQTT** na porta `1883` (via Docker Compose com Eclipse Mosquitto ou serviço local equivalente)
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate   # No Windows (PowerShell): .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
----
-
-## Execução
-
-A ordem de inicialização respeita a dependência de sincronização de estado: **Broker MQTT → Servidor de Middleware → Controladores → Atuador → Sensor → Cliente**.
-
-### Inicialização por Script
-
-- **Linux / macOS:**
-  ```bash
-  bash scripts/start_all.sh
-  python3 -m estufa.cliente
-  ```
-- **Windows (PowerShell):**
-  ```powershell
-  .\scripts\start_all.ps1
-  python -m estufa.cliente
-  ```
-
-### Inicialização Manual por Processo
-
-Com o ambiente virtual ativo em cada terminal:
-
-```bash
-# 1. Broker MQTT
-docker compose up -d
-
-# 2. Servidor de Middleware (porta 9000)
-python -m estufa.middleware_server
-
-# 3. Réplicas de Controlador (portas 8001, 8002 e 8003)
-python -m estufa.controlador --id ctrl_1 --port 8001 --data data_ctrl_1.json
-python -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json
-python -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json
-
-# 4. Atuador
-python -m estufa.atuador
-
-# 5. Sensor (perfis disponíveis: normal, seco, quente, frio)
-python -m estufa.sensor --modo normal
-
-# 6. Cliente interativo (ou --auto para consulta contínua)
-python -m estufa.cliente
-```
-
-### Simulação de Falha Bizantina
-
-Para iniciar uma das réplicas simulando comportamento bizantino (retorno de leituras adulteradas e estados invertidos):
-
-```bash
-python -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json --byzantino
-```
-
----
-
-## Limiares de Controle e Tolerância a Falhas
-
-| Variável | Condição | Atuador | Ação |
+| Processo | Comando Simplificado | Porta | Papel |
 |---|---|---|---|
-| Temperatura | `> 35.0 °C` | Exaustor | Ligar |
-| Temperatura | `< 15.0 °C` | Exaustor | Desligar |
-| Umidade do Solo | `< 30.0 %` | Bomba de Irrigação | Ligar |
-| Umidade do Solo | `> 70.0 %` | Bomba de Irrigação | Desligar |
-
-| Cenário | Comportamento do Sistema |
-|---|---|
-| 1 controlador inativo (*crash*) | Quórum 2/3 mantido; operação normal sem interrupção |
-| 1 controlador bizantino | Resposta divergente descartada na votação majoritária (2 votos honestos contra 1) |
-| 2 ou mais controladores inativos | `ErroQuorum` reportado ao cliente por ausência de maioria |
-| Reinicialização de réplica | Sincronização automática do estado atual via Middleware no boot |
+| **1. Broker MQTT** | `python -m estufa.broker_local` | `127.0.0.1:1883` | Broker MQTT v3.1.1 em Python puro (sem Docker/Admin) |
+| **2. Controlador 1** | `python -m estufa.controlador 1 [--byzantino]` | `127.0.0.1:8001` | Réplica `ctrl_1` (`rank=1`), banco `data_ctrl_1.json` |
+| **3. Controlador 2** | `python -m estufa.controlador 2 [--byzantino]` | `127.0.0.1:8002` | Réplica `ctrl_2` (`rank=2`), banco `data_ctrl_2.json` |
+| **4. Controlador 3** | `python -m estufa.controlador 3 [--byzantino]` | `127.0.0.1:8003` | Réplica `ctrl_3` (`rank=3`, líder inicial), banco `data_ctrl_3.json` |
+| **5. Atuador** | `python -m estufa.atuador` | — | Executa bomba/exaustor e publica status QoS 1 |
+| **6. Sensor Contínuo** | `python -m estufa.sensor [--temp 28] [--umidade 42] [--intervalo 2]` | — | Simulador contínuo em malha fechada |
+| **7. Cliente CLI** | `python -m estufa.cliente [--auto] [--intervalo 3]` | — | Interface interativa de monitoramento e controle |
 
 ---
 
-## Testes Automatizados
+## 3. Como Executar no Laboratório (Windows 11 sem Docker / sem Admin)
 
-A suíte utiliza `pytest` com *mocks* para isolamento das chamadas de rede e não exige broker ou processos externos em execução:
-
-```bash
-pytest tests/ -v
+### Preparação do Ambiente Virtual (`.venv`)
+```powershell
+cd trabalho_pratico1
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
+
+### Inicialização Interativa em 6 Janelas + Cliente
+```powershell
+# Limpar processos residuais e arquivos data_ctrl_*.json
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reset_demo.ps1
+
+# Subir Broker, 3 Controladores, Atuador e Sensor em janelas independentes
+# (Cada janela já vem com o comando no histórico: Ctrl+C + Seta para Cima para editar e reiniciar!)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1
+
+# Opcional: iniciar sensor com valores iniciais customizados
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Temp 38 -Umidade 25 -Intervalo 2
+
+# No terminal atual, iniciar o Cliente Direto:
+.\.venv\Scripts\python.exe -m estufa.cliente
+```
+
+> **Alternativa Linux (Dual Boot / Docker opcional):** Utilize `./scripts/start_all.sh [TEMP] [UMIDADE] [INTERVALO]`. Caso tenha Docker ativo, `docker compose up -d` sobe o Mosquitto (`mosquitto/mosquitto.conf`); sem Docker, o script utiliza automaticamente `estufa.broker_local`.
+
+---
+
+## 4. Regras de Controle e Quórum Dinâmico
+
+| Variável | Condição | Ação Oficial (após consenso) |
+|---|---|---|
+| **Temperatura** | `> 35.0 °C` | Liga Exaustor |
+| **Temperatura** | `< 15.0 °C` | Desliga Exaustor |
+| **Umidade do Solo** | `< 30.0 %` | Liga Bomba de Irrigação |
+| **Umidade do Solo** | `> 70.0 %` | Desliga Bomba de Irrigação |
+
+- **3 controladores ativos:** quórum majoritário ($\ge 2/3$) — mascara até `1` nó `--byzantino` antes de gravar nos bancos JSON.
+- **2 controladores ativos:** exige concordância ($2/2$) — qualquer conflito entre os dois (ex: 1 honesto vs 1 bizantino) bloqueia com `ErroQuorum` sem corromper o banco.
+- **1 controlador ativo:** modo degradado ($1/1$) — o último nó vivo assume liderança isolada para preservar disponibilidade.
+- **Reconexão:** ao religar qualquer controlador derrubado, ele sincroniza o `data_ctrl_X.json` com o líder/cluster antes de reassumir ou participar das votações.
+
+---
+
+## 5. Testes Automatizados e Validação E2E
+
+```powershell
+# Suíte completa de testes unitários e de integração (34 testes)
+.\.venv\Scripts\pytest.exe .\tests -v -p no:cacheprovider
+
+# Validação End-to-End com subprocessos reais (6 etapas: Bully, MQTT, Failover 3->2->1, Sync, Bizantino)
+.\.venv\Scripts\python.exe .\scripts\validate_e2e.py
+```
+
+---
+
+## 6. Documentos de Apoio
+
+- [roteiro_apresentacao.md](./roteiro_apresentacao.md) — Guia enxuto passo a passo para demonstração e injeção de falhas ao vivo.
+- [revisao_defesa_tp1.md](./revisao_defesa_tp1.md) — Explicação técnica detalhada linha a linha do código e perguntas de defesa.
+- [relatorio/relatorio.md](./relatorio/relatorio.md) — Relatório técnico completo do trabalho.

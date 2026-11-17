@@ -1,65 +1,58 @@
 # Prompt Autossuficiente de Preparação e Validação (Máquina do Laboratório)
 
-> **Como usar no laboratório:** Abra uma nova conversa do zero no Antigravity (`agy`) e passe este arquivo como contexto (`@prompt-tp1-lab-setup.md`) ou cole o texto abaixo. Ele é **100% autossuficiente**: prepara a `.venv`, valida todos os 58 testes unitários + 6 estágios E2E reais e deixa o ambiente limpo para você disparar a task `🚀 [DEMO] 1. Subir Todo o Sistema (Estufa TP1)`.
+> **Como usar no laboratório:** Abra uma nova conversa no Antigravity (`agy`) e passe este arquivo como contexto (`@prompt-tp1-lab-setup.md`). Ele prepara a `.venv`, executa os 34 testes unitários/de integração + validação E2E em 6 etapas e deixa o ambiente pronto para rodar o sistema em janelas independentes ou via VS Code Tasks.
 
 ---
 
 ## Instruções para o Agente (`agy`)
 
-Você está preparando e validando o ambiente para a apresentação ao vivo do `trabalho_pratico1` (Controle Automatizado de Estufa Agrícola com MQTT e XML-RPC) em uma máquina Windows de laboratório **sem Docker e sem permissões de Administrador**, usando o **Antigravity IDE (baseado em VS Code)**.
+Você está preparando e validando o ambiente para a apresentação ao vivo do `trabalho_pratico1` (Estufa Agrícola Distribuída com Middleware XML-RPC embarcado, Eleição Bully, Consenso Replicado e MQTT QoS 1) em uma máquina **Windows 11 sem Docker e sem permissões de Administrador**.
 
-> **Nota de Governança SDD:** A especificação desta mudança já existe, foi auditada e está aprovada em `openspec/changes/prepare-tp1-lab-presentation/proposal.md` e `openspec/changes/prepare-tp1-lab-presentation/tasks.md`. Não é necessário criar novas propostas SDD; execute diretamente a validação operacional e preparação do ambiente abaixo.
-
-Execute os passos abaixo em sequência até confirmar que tudo está 100% operacional:
+Execute os passos abaixo em sequência:
 
 ### PASSO 1 — Sincronização Git e Verificação de Arquivos
-1. Verifique `git status` e, se necessário, execute `git pull` para garantir que os arquivos abaixo estão presentes no workspace:
-   - `trabalho_pratico1/estufa/broker_local.py` (Broker MQTT v3.1.1 Híbrido: Mosquitto portátil + fallback Python puro na porta `1883`)
-   - `trabalho_pratico1/estufa/middleware.py` (Com `_TimeoutTransport` e tratamento de `TimeoutError` no `as_completed` para Windows)
-   - `trabalho_pratico1/scripts/validate_e2e.py` (Smoke Test End-to-End das Etapas 2 a 7)
-   - `trabalho_pratico1/scripts/reset_demo.ps1` e `trabalho_pratico1/scripts/start_all.ps1`
-   - `.vscode/tasks.json` e `trabalho_pratico1/.vscode/tasks.json` (com `shell.executable: "powershell.exe"` explícito)
+Confirme no workspace a presença dos módulos atualizados:
+- `trabalho_pratico1/estufa/broker_local.py` (Broker MQTT v3.1.1 em Python puro em `127.0.0.1:1883`)
+- `trabalho_pratico1/estufa/config.py`, `middleware.py`, `controlador.py`, `cliente.py`, `sensor.py`, `atuador.py` (7 processos sem servidor `:9000`)
+- `trabalho_pratico1/scripts/start_all.ps1`, `reset_demo.ps1`, `validate_e2e.py`
+- `.vscode/tasks.json` e `trabalho_pratico1/.vscode/tasks.json`
 
 ### PASSO 2 — Ambiente Virtual Python (`.venv`) em User-Space (Sem Admin)
-1. Teste se `.\trabalho_pratico1\.venv\Scripts\python.exe --version` e `.\trabalho_pratico1\.venv\Scripts\python.exe -c "import paho.mqtt.client, pytest; print('OK')"` funcionam nesta máquina.
-2. **Atenção:** Como ambientes `.venv` contêm caminhos absolutos da máquina onde foram criados (ou não são versionados no Git), se `.venv\Scripts\python.exe` não existir ou falhar ao executar:
-   - Remova a pasta `trabalho_pratico1/.venv` antiga (se existir corrompida).
-   - Localize um Python >= 3.10 instalado na máquina (`python --version`, `py -3 --version`, ou em `$env:LOCALAPPDATA\Programs\Python`).
-   - Crie a `.venv` limpa:
-     ```powershell
-     python -m venv trabalho_pratico1\.venv
-     ```
-   - Instale as dependências de `requirements.txt` (`paho-mqtt==2.1.0`, `pytest==8.3.3`, `pytest-timeout==2.3.1`):
-     ```powershell
-     .\trabalho_pratico1\.venv\Scripts\python.exe -m pip install -r .\trabalho_pratico1\requirements.txt
-     ```
+1. Teste `.\trabalho_pratico1\.venv\Scripts\python.exe -c "import paho.mqtt.client, pytest; print('OK')"`.
+2. Se não existir `.venv` funcional na máquina do laboratório, crie e instale:
+   ```powershell
+   python -m venv trabalho_pratico1\.venv
+   .\trabalho_pratico1\.venv\Scripts\python.exe -m pip install -r .\trabalho_pratico1\requirements.txt
+   ```
 
 ### PASSO 3 — Limpeza de Portas e Estados Residuais
-Execute o script de reset para garantir que as portas `1883`, `8001`, `8002`, `8003` e `9000` estejam livres e que nenhum `data_ctrl_*.json` antigo interfira:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\trabalho_pratico1\scripts\reset_demo.ps1
 ```
+Confirme que as portas `1883`, `8001`, `8002` e `8003` estão livres e que não há `data_ctrl_*.json` antigos.
 
-### PASSO 4 — Execução da Suíte de Testes Unitários (58 Testes)
-Execute o `pytest` usando o interpretador da `.venv`:
+### PASSO 4 — Execução da Suíte de Testes (`pytest` — 34 Testes)
 ```powershell
 .\trabalho_pratico1\.venv\Scripts\pytest.exe .\trabalho_pratico1\tests -v -p no:cacheprovider
 ```
-- Todos os **58 testes** (`test_atuador.py`, `test_broker_local.py`, `test_controlador.py`, `test_middleware.py`) devem passar (`PASSED`).
+Todos os 34 testes (`test_atuador.py`, `test_broker_local.py`, `test_controlador.py`, `test_middleware.py`, `test_sensor.py`) devem passar.
 
-### PASSO 5 — Execução do Smoke Test End-to-End Real (`validate_e2e.py`)
-Execute o script de validação End-to-End que sobe processos reais do Broker MQTT Local (`:1883`), Middleware XML-RPC (`:9000`), 3 Réplicas (`:8001..8003`) e Atuador (nota: como o teste faz bind e conexões TCP em `127.0.0.1`, se o sandbox bloquear sockets com `WinError 10013`, execute com `BypassSandbox: true`):
+### PASSO 5 — Execução da Validação End-to-End Real (`validate_e2e.py`)
 ```powershell
-.\trabalho_pratico1\.venv\Scripts\python.exe .\trabalho_pratico1\scripts\validate_e2e.py
+.\trabalho_pratico1\.venv\Scripts\python.exe -B .\trabalho_pratico1\scripts\validate_e2e.py
 ```
-Confirme que todas as 6 verificações reais imprimem `[OK]` e finalizam com `[SUCESSO TOTAL]`:
-1. `[ETAPA 2]` Cluster 3/3 online e saudável via Middleware XML-RPC (`:9000`)
-2. `[ETAPA 3]` Acionamento autônomo MQTT (`Umidade=18.5% < 30%`) + MD5 determinístico + 2 descartes no Cache LRU do Atuador
-3. `[ETAPA 4]` Tolerância a falha por parada (`ctrl_3` derrubado, quórum 2/3 mantido)
-4. `[ETAPA 5]` Recuperação de falha (`ctrl_3` reiniciado sem JSON local sincroniza estado no boot via Middleware)
-5. `[ETAPA 6]` Tolerância a falha bizantina (`ctrl_2 --byzantino` enviando `temp=999.0` mascarado por `ctrl_1 + ctrl_3`)
-6. `[ETAPA 7]` Perda de quórum (`f=2` falhas simultâneas levanta `ERRO_QUORUM` com segurança)
+Confirme que todas as 6 etapas finalizam com `[SUCESSO TOTAL]` (em `< 45s`) e os arquivos `data_ctrl_*.json` são limpos ao final:
+1. Cluster 3/3 online e eleição Bully (`ctrl_3` líder)
+2. Telemetria MQTT em malha fechada + consenso + `data_ctrl_1..3.json` idênticos
+3. Queda de `ctrl_3` -> failover automático para `ctrl_2` (`2/2`)
+4. Queda de `ctrl_2` -> modo degradado `1/1` em `ctrl_1`
+5. Reconexão de `ctrl_2` e `ctrl_3` -> ressincronização automática dos bancos JSON e retomada Bully em `ctrl_3`
+6. `ctrl_2 --byzantino` mascarado pela maioria `2/3` e `ErroQuorum` em conflito `1 honesto vs 1 bizantino`
 
-### PASSO 6 — Confirmação Final de Prontidão
-Verifique novamente que os arquivos `data_ctrl_*.json` foram limpos pelo `validate_e2e.py` e apresente ao usuário um resumo enxuto confirmando que o ambiente está pronto e listando o atalho para abrir os 8 terminais na chegada do professor:
-- `Ctrl+Shift+P` -> `Tasks: Run Task` -> `🚀 [DEMO] 1. Subir Todo o Sistema (Estufa TP1)`
+### PASSO 6 — Prontidão para Apresentação ao Vivo
+Apresente ao usuário o resumo de validação e informe o comando interativo para abrir os terminais independentes (com histórico pronto para `Ctrl+C` + `↑`):
+```powershell
+cd trabalho_pratico1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1
+.\.venv\Scripts\python.exe -m estufa.cliente
+```

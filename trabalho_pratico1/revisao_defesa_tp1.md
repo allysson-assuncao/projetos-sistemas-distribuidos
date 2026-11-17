@@ -1,250 +1,138 @@
-# Guia Completo de Revisão e Defesa — Trabalho Prático 1 (Sistemas Distribuídos)
+# Revisão Técnica e Guia Detalhado de Defesa — Trabalho Prático 1 (SD)
 
-Este documento foi preparado para você ler **lado a lado com o código** antes da apresentação individual na bancada. Ele reconstrói toda a lógica do projeto do zero, explica cada arquivo linha por linha, detalha os dois fluxos de execução e antecipa as perguntas teóricas e práticas que o professor costuma fazer.
-
----
-
-## 1. O Que é o Projeto (Resumo de 1 Minuto para Abrir a Apresentação)
-
-> **Como explicar ao professor em 30 segundos:**
-> *"O projeto implementa o sistema de controle automatizado de uma estufa agrícola distribuída. Temos sensores de temperatura e umidade do solo que publicam leituras continuamente via **MQTT** (modelo publicar/assinar). Três **Controladores replicados** (replicação ativa) consomem essas leituras de forma independente, avaliam regras de histerese e enviam comandos via MQTT para o **Atuador** (bomba de irrigação e exaustor), que usa um **cache LRU** para descartar comandos duplicados vindos das 3 réplicas. Para o usuário final (Cliente CLI) consultar o estado ou enviar comandos manuais, a comunicação é síncrona via **XML-RPC** passando obrigatoriamente por um **Servidor de Middleware** na porta 9000. Esse Middleware consulta os 3 controladores em paralelo (portas 8001 a 8003) e aplica **votação majoritária (quórum 2 de 3)**, mascarando tanto a queda de 1 controlador (falha por parada/crash) quanto 1 controlador retornando dados falsos (falha bizantina)."*
+Este documento detalha o funcionamento interno de todos os módulos refatorados do projeto (`trabalho_pratico1/estufa/`), com referências exatas de arquivo, símbolo e linhas para consulta rápida durante a arguição com o professor.
 
 ---
 
-## 2. Mapa Conceitual: Teoria da Disciplina $\leftrightarrow$ Implementação no Código
+## 1. Mapa Rápido de Pontos Críticos no Código
 
-Quando o professor perguntar *"Onde está o conceito X da disciplina no seu código?"*, use esta tabela:
-
-| Conceito de Sistemas Distribuídos | Onde está implementado | Como funciona no projeto |
-|---|---|---|
-| **Comunicação Indireta (Pub/Sub)** | [`estufa/sensor.py`](estufa/sensor.py) e [`estufa/atuador.py`](estufa/atuador.py) | Desacoplamento espacial e temporal via broker MQTT (Mosquitto na porta `1883`) com `QoS = 1` (entrega *at-least-once*). |
-| **Invocação Remota (RPC)** | [`estufa/middleware_server.py`](estufa/middleware_server.py), [`estufa/middleware.py`](estufa/middleware.py) e [`estufa/controlador.py`](estufa/controlador.py) | Chamadas síncronas cliente-servidor sobre HTTP/XML usando `SimpleXMLRPCServer` e `xmlrpc.client.ServerProxy`. |
-| **Transparência de Acesso, Localização e Replicação** | [`estufa/cliente.py`](estufa/cliente.py) (linhas 19–21) | O cliente conhece apenas `http://localhost:9000` (Middleware). Ele não sabe que existem 3 réplicas nas portas `8001`, `8002` e `8003`. |
-| **Replicação Ativa (*State Machine Replication*)** | [`estufa/controlador.py`](estufa/controlador.py) | Todas as 3 réplicas recebem os mesmos eventos MQTT dos sensores e executam a mesma máquina de estados deterministicamente. |
-| **Tolerância a Falhas por Votação Majoritária (TMR)** | [`estufa/middleware.py`](estufa/middleware.py) (`_votar`, linhas 41–91) | *Triple Modular Redundancy* ($N = 2f + 1 = 3$). O Middleware chama as 3 réplicas em paralelo (`ThreadPoolExecutor`) e exige `QUORUM_MINIMO = 2` respostas idênticas. |
-| **Transferência de Estado (*State Transfer*)** | [`estufa/controlador.py`](estufa/controlador.py) (`_sincronizar_estado_via_middleware`, linhas 74–105) | Quando uma réplica inicia ou volta de um *crash*, antes de assinar o MQTT ela pede `obter_estado()` ao Middleware para sincronizar seu JSON local com o quórum ativo. |
-| **Idempotência / Deduplicação de Mensagens** | [`estufa/atuador.py`](estufa/atuador.py) (`_is_duplicado`, linhas 25–41) | Como 3 réplicas ativas publicam o mesmo comando no MQTT, o Atuador filtra o `comando_id` num cache LRU (`OrderedDict` de 50 posições), executando a ação física apenas 1 vez. |
-
----
-
-## 3. Roteiro de Leitura do Código (Arquivo por Arquivo)
-
-Abra os arquivos abaixo na ordem indicada para revisar toda a implementação em ~15 minutos.
-
-### Passo 1: [`estufa/config.py`](estufa/config.py) (43 linhas)
-É o arquivo mais simples e centraliza todas as constantes:
-- **Linhas 9–19:** Configuração do Broker MQTT (`localhost:1883`) e os 6 tópicos MQTT:
-  - Sensores: `estufa/sensores/temperatura` e `estufa/sensores/umidade_solo`
-  - Comandos para atuadores: `estufa/atuadores/bomba` e `estufa/atuadores/exaustor`
-  - Confirmação de status: `estufa/status/bomba` e `estufa/status/exaustor`
-- **Linhas 22–26 (`CONTROLADORES`):** Lista com os 3 dicionários das réplicas (`ctrl_1` na `8001`, `ctrl_2` na `8002`, `ctrl_3` na `8003`) e o respectivo arquivo JSON de persistência de cada uma.
-- **Linhas 29–30:** Endereço do Servidor de Middleware (`localhost:9000`).
-- **Linhas 33–36 (Limiares com Histerese):**
-  - Temperatura: acima de `35.0 °C` liga o exaustor; abaixo de `15.0 °C` desliga o exaustor.
-  - Umidade do solo: abaixo de `30.0 %` liga a bomba; acima de `70.0 %` desliga a bomba.
-- **Linhas 39–43:** `TIMEOUT_RPC_SEGUNDOS = 3`, `QUORUM_MINIMO = 2` e `DEDUP_CACHE_SIZE = 50`.
+| Tópico de Arguição | Arquivo | Símbolo / Função | Linhas |
+|---|---|---|---|
+| Topologia do cluster, rank Bully, histerese e timeouts | `estufa/config.py` | `MAPA_CONTROLADORES`, `obter_config_controlador`, `TIMEOUT_RPC_SEGUNDOS` | `L23–L67` |
+| Timeout de socket XML-RPC no Windows | `estufa/middleware.py` | `_TimeoutTransport`, `criar_proxy_rpc` | `L23–L47` |
+| Consenso dinâmico (`3->2/3`, `2/2`, `1/1` e `ErroQuorum`) | `estufa/middleware.py` | `ClusterMiddleware._normalizar_estado`, `calcular_consenso` | `L110–L170` |
+| Failover transparente do Cliente Direto (sem `:9000`) | `estufa/middleware.py` | `ClusterMiddleware._chamar_com_failover`, `obter_estado` | `L194–L260` |
+| Servidor XML-RPC multi-thread (sem bloqueios nem `WinError 10048`) | `estufa/controlador.py` | `_ThreadedXMLRPCServer` | `L32–L36` |
+| Persistência JSON atômica local | `estufa/controlador.py` | `Controlador._carregar_estado`, `_salvar_estado` | `L161–L202` |
+| Eleição de líder (Algoritmo Bully) e guarda de rank | `estufa/controlador.py` | `ping`, `iniciar_eleicao`, `anunciar_lider`, `realizar_eleicao` | `L208–L341` |
+| Detecção de queda do líder por Heartbeat | `estufa/controlador.py` | `Controlador._loop_heartbeat` | `L352–L387` |
+| Sincronização de réplica ao reconectar (`State Transfer`) | `estufa/controlador.py` | `Controlador._sincronizar_com_cluster` | `L394–L482` |
+| Votação P2P, simulação `--byzantino` e commit replicado | `estufa/controlador.py` | `coletar_voto_estado`, `commit_estado`, `_coordenar_consenso_e_persistir` | `L489–L670` |
+| Inscrição MQTT QoS 1 e publicação exclusiva do Líder | `estufa/controlador.py` | `_publicar_comando`, `_on_connect`, `_on_message` | `L567–L575`, `L677–L727` |
+| Encaminhamento seguidor → líder em comandos manuais | `estufa/controlador.py` | `Controlador._executar_comando_atuador` | `L747–L818` |
+| Cliente resiliente a falhas de quórum e queda de nós | `estufa/cliente.py` | `_executar_acao_segura`, `menu_interativo` | `L41–L105` |
+| Sensor contínuo em malha fechada e inscrição MQTT QoS 1 | `estufa/sensor.py` | `SimuladorAmbiente`, `_on_connect`, `_on_message`, `executar_sensor` | `L27–L156` |
+| Atuador unificado (sem cache LRU) e feedback de status | `estufa/atuador.py` | `_on_connect`, `_publicar_status`, `_processar_atuador`, `_on_message` | `L22–L77` |
+| Broker MQTT v3.1.1 em Python puro (varint, `PUBACK`, porta ocupada) | `estufa/broker_local.py` | `BrokerMQTTLocal`, `_atender_cliente`, `_processar_publish`, `executar_broker` | `L47–L328` |
 
 ---
 
-### Passo 2: [`estufa/sensor.py`](estufa/sensor.py) (91 linhas)
-Simula os sensores físicos publicando no MQTT a cada 2 segundos:
-- **Linhas 24–29 (`PERFIS`):** Permite rodar o sensor em 4 modos via linha de comando (`--modo normal`, `seco`, `quente`, `frio`). Por exemplo, `--modo seco` sorteia umidade entre 10% e 29% (forçando os controladores a ligarem a bomba), e `--modo quente` sorteia temperatura entre 36°C e 42°C (forçando os controladores a ligarem o exaustor).
-- **Linhas 39–48 (`publicar_leitura`):** Monta o JSON com `"valor"`, `"unidade"` e `"timestamp": time.time()`.
-  - **Ponto-chave para a defesa:** Esse campo `"timestamp"` gerado pelo sensor é crucial! Quando o broker entrega essa mensagem para os 3 controladores, todos os 3 recebem **exatamente o mesmo número de `timestamp`**. É graças a ele que os 3 controladores conseguem calcular o mesmo hash MD5 sem precisarem conversar entre si.
-- **Linhas 60–81 (`executar_sensor`):** Usa `client.loop_start()` (que cria uma thread de rede interna do `paho-mqtt`) e, no `while True`, publica temperatura e umidade com `qos=1`.
+## 2. Análise Detalhada Módulo a Módulo
+
+### 2.1 `estufa/config.py` (`67` linhas)
+Centraliza todas as constantes compartilhadas sem credenciais ou dependências externas:
+- **MQTT (`L9–L19`):** Define `MQTT_HOST = "127.0.0.1"`, `MQTT_PORT = 1883`, `MQTT_KEEPALIVE = 60` e os 6 tópicos separados por responsabilidade (`estufa/sensores/*`, `estufa/atuadores/*` e `estufa/status/*`). O uso explícito de `"127.0.0.1"` evita que o Windows 11 tente conectar primeiro em IPv6 (`::1`) causando atraso de ~1–2s em cada conexão.
+- **Topologia do Cluster (`L23–L55`):** `MAPA_CONTROLADORES` associa números curtos (`1, 2, 3`) aos metadados `id` (`ctrl_1..ctrl_3`), `rank` (`1..3`), `host` (`127.0.0.1`), `port` (`8001..8003`) e `data_file` (`data_ctrl_1..3.json`). A função `obter_config_controlador` (`L34–L55`) valida e aceita tanto `1` quanto `"ctrl_1"` no CLI, rejeitando booleanos ou IDs fora do intervalo com `ValueError`.
+- **Regras de Histerese e Timeouts (`L59–L67`):** `TEMP_MAX_CELSIUS = 35.0`, `TEMP_MIN_CELSIUS = 15.0`, `UMIDADE_MIN_PERCENT = 30.0`, `UMIDADE_MAX_PERCENT = 70.0`. `TIMEOUT_RPC_SEGUNDOS = 1.5`, `INTERVALO_HEARTBEAT_SEGUNDOS = 2.0` e `QUORUM_MINIMO = 2`.
 
 ---
 
-### Passo 3: [`estufa/controlador.py`](estufa/controlador.py) (319 linhas)
-É o coração do trabalho. Cada instância desse script representa uma réplica (`ctrl_1`, `ctrl_2` ou `ctrl_3`).
+### 2.2 `estufa/middleware.py` (`318` linhas) — Camada Lógica Distribuída
+Não existe mais processo servidor intermediário (`:9000`). O `ClusterMiddleware` é importado diretamente por `cliente.py` e pelos controladores (`controlador.py`).
 
-1. **Estado e Concorrência (linhas 29–55):**
-   - `self._estado` guarda `temperatura`, `umidade_solo`, `bomba_ligada`, `exaustor_ligado`, `ultima_atualizacao`, `sensor_timestamp` e `controlador_id`.
-   - **Por que existe `self._lock = threading.Lock()` na linha 50?**
-     Porque cada controlador roda **duas threads simultâneas**:
-     1. A thread do servidor XML-RPC (`server_thread`, linha 288), que lê/altera `self._estado` quando o Middleware chama `obter_estado` ou `comandar_bomba`.
-     2. A thread do cliente MQTT (`loop_forever`, linha 305), que altera `self._estado` quando chega mensagem de sensor em `_on_message` (linha 173).
-     O `with self._lock:` evita condição de corrida (*race condition*) na memória e na escrita do arquivo JSON.
+1. **Prevenção de Travamento TCP no Windows (`_TimeoutTransport`, `L23–L47`):**
+   - Por padrão, `xmlrpc.client.ServerProxy` no Windows pode travar dezenas de segundos aguardando handshake/leitura em portas paradas ou semi-abertas. `_TimeoutTransport.make_connection` (`L30–L33`) injeta `conn.timeout = self._timeout` diretamente no socket HTTP subjacente.
+   - `ClusterMiddleware.__init__` (`L85–L95`) define o timeout padrão do cliente como `config.TIMEOUT_RPC_SEGUNDOS * 2.5` (`3.75s`), pois uma chamada de comando (`comandar_bomba`/`comandar_exaustor`) dispara dentro do líder duas rodadas RPC paralelas entre pares (`coletar_voto_estado` + `commit_estado`).
 
-2. **Sequência de Boot e Transferência de Estado (linhas 74–105 e 265–305):**
-   - Olhe o método `iniciar()` na **linha 265**:
-     - **Etapa 1 (linhas 276–289):** Sobe o `SimpleXMLRPCServer` na porta da réplica (`8001`, `8002` ou `8003`) em uma thread *daemon*.
-     - **Etapa 2 (linhas 291–294):** Chama `_sincronizar_estado_via_middleware()`.
-     - **Etapa 3 (linhas 296–305):** Conecta ao Broker MQTT e entra em `loop_forever()`.
-   - **Por que a Etapa 2 vem antes do MQTT?**
-     Se o `ctrl_3` caiu, enquanto ele estava fora a bomba pode ter sido ligada manualmente pelo cliente. Quando o `ctrl_3` reinicia, o arquivo `data_ctrl_3.json` dele está desatualizado (`bomba_ligada: False`). Então, antes de começar a operar, ele chama `proxy.obter_estado()` no Middleware (`:9000`), recebe o estado vencedor do quórum (`ctrl_1` e `ctrl_2`) e sobrescreve seu estado local (**linhas 84–91**).
-   - **E no primeiro boot de todos, quando as réplicas estão subindo?**
-     Por isso o `ctrl_1` sobe seu XML-RPC primeiro (Etapa 1) e tenta sincronizar com o Middleware até 10 vezes (`max_tentativas=10`). Assim que pelo menos 2 réplicas já subiram o XML-RPC (Etapa 1), o Middleware consegue formar quórum 2/3 e libera a sincronização!
+2. **Normalização e Quórum Dinâmico (`_normalizar_estado` e `calcular_consenso`, `L110–L170`):**
+   - `_normalizar_estado` (`L110–L134`) descarta campos voláteis (`ultima_atualizacao`, `lider_id`, `controlador_id`) e serializa em JSON ordenado apenas os 4 campos de domínio (`temperatura`, `umidade`, `bomba_ligada`, `exaustor_ligado`).
+   - `calcular_consenso` (`L137–L170`) conta as ocorrências com `collections.Counter` e aplica as regras por tamanho de quórum ativo:
+     - **`>= 3` ativos (`L157`):** exige `votos >= 2`. Se 1 controlador for `--byzantino`, os 2 honestos vencem (`2/3`). Se todos os 3 divergirem, lança `ErroQuorum`.
+     - **`2` ativos (`L161`):** exige concordância total (`votos == 2`). Se houver empate `1 vs 1` (ex.: 1 honesto + 1 bizantino com o terceiro caído), lança `ErroQuorum` porque não há desempate seguro.
+     - **`1` ativo (`L166–L168`):** modo degradado (`1/1`) — o único controlador sobrevivente mantém o sistema disponível.
+     - **`0` ativos (`L150–L151`):** lança `ErroQuorum`.
 
-3. **Lógica de Decisão Autônoma e Hash Determinístico (linhas 107–144):**
-   - Em `_decidir_atuacao()`, o controlador verifica os limiares com **histerese**:
-     - Linha 122: Só manda ligar o exaustor se `temp > 35.0` **e** `not self._estado["exaustor_ligado"]` (evita mandar ligar repetidamente se já estiver ligado).
-     - Linha 127: Só manda desligar se `temp < 15.0` **e** `self._estado["exaustor_ligado"]`.
-   - **Geração do `comando_id` determinístico (linhas 117–119):**
-     ```python
-     def gerar_comando_id(acao_alvo: str) -> str:
-         raw = f"{acao_alvo}_{sensor_ts}"
-         return hashlib.md5(raw.encode("utf-8")).hexdigest()
-     ```
-     Como `acao_alvo` (ex.: `"bomba_ligar"`) e `sensor_ts` (o timestamp que veio no JSON do sensor) são iguais nos 3 controladores, os 3 geram **exatamente o mesmo MD5**.
-
-4. **Métodos XML-RPC e Simulação de Falha Bizantina (linhas 186–263):**
-   - `obter_estado()` (linhas 186–199): Se `self.byzantino` for `False`, devolve `dict(self._estado)`. Se for `True` (`--byzantino`), devolve `temperatura: 999.0`, `umidade_solo: -1.0` e inverte os booleanos `bomba_ligada` e `exaustor_ligado`.
-   - `comandar_bomba(acao, comando_id)` (linhas 201–229) e `comandar_exaustor(acao, comando_id)` (linhas 231–259):
-     - Nas réplicas honestas: atualiza `self._estado`, publica no MQTT repassando o `comando_id` recebido do Middleware, salva no JSON e retorna:
-       `{"sucesso": True, "mensagem": "Bomba ligada com sucesso", "controlador_id": self.ctrl_id}`.
-     - Na réplica bizantina (`if self.byzantino`, linhas 211–217): **não altera o estado nem publica no MQTT**, e retorna a mensagem com a ação oposta (`"Bomba desligada com sucesso"` quando o pedido foi `"ligar"`), simulando uma réplica defeituosa/maliciosa.
+3. **Failover Transparente e Leitura Paralela (`_chamar_com_failover` e `obter_estado`, `L172–L260`):**
+   - `_ordenar_candidatos` (`L172–L179`) coloca o último líder em cache (`self._lider_atual`) em primeiro lugar e ordena os demais do maior `rank` para o menor (`ctrl_3 -> ctrl_2 -> ctrl_1`).
+   - `_chamar_com_failover` (`L194–L227`) tenta o próximo controlador automaticamente em qualquer `ConnectionRefusedError`, `TimeoutError`, `socket.timeout`, `OSError` ou `ProtocolError`, limpando `_lider_atual` se ele falhou. Caso receba um `xmlrpc.client.Fault` contendo `"ERRO_QUORUM"`, converte e propaga `ErroQuorum` imediatamente.
+   - `obter_estado` (`L230–L260`) dispara chamadas paralelas (`ThreadPoolExecutor`) para todos os controladores alcançáveis com timeout limitado (`self._timeout + 0.3s`), aplica `calcular_consenso` e atualiza `_lider_atual`.
+   - `comandar_bomba` / `comandar_exaustor` (`L262–L272`) validam estritamente `isinstance(ligar, bool)` antes de encaminhar ao cluster.
 
 ---
 
-### Passo 4: [`estufa/middleware.py`](estufa/middleware.py) (119 linhas) e [`estufa/middleware_server.py`](estufa/middleware_server.py) (93 linhas)
+### 2.3 `estufa/controlador.py` (`911` linhas) — Núcleo Distribuído
 
-- **Por que são dois arquivos?**
-  - [`estufa/middleware_server.py`](estufa/middleware_server.py) sobe o servidor HTTP/XML-RPC na porta `9000` (`SimpleXMLRPCServer`) e registra a classe `MiddlewareService`. Quando ocorre `ErroQuorum`, ele lança uma exceção que o protocolo XML-RPC serializa como `xmlrpc.client.Fault` para o cliente.
-  - [`estufa/middleware.py`](estufa/middleware.py) contém a classe `Middleware` com o algoritmo de votação puro, sem depender de abrir porta de rede (o que permite testar toda a lógica de quórum com *mocks*).
+1. **Concorrência e Prevenção de Deadlock (`L32–L36`, `L101–L147`):**
+   - `_ThreadedXMLRPCServer` (`L32–L36`) combina `socketserver.ThreadingMixIn` com `SimpleXMLRPCServer`, `allow_reuse_address = True` e `daemon_threads = True`. Isso é essencial para que um controlador possa atender `ping()`, `coletar_voto_estado()` ou `anunciar_lider()` simultaneamente enquanto outra thread coordena consenso ou heartbeat, além de permitir reinício rápido na mesma porta sem `WinError 10048`.
+   - **Regra de Lock (`L101–L102`):** `self._lock` (`RLock`) protege apenas acessos em memória e disco (`self._estado`, `self.lider_id`) e **nunca** é mantido durante chamadas XML-RPC externas. Sempre fazemos um snapshot sob lock, liberamos o lock, executamos o RPC em paralelo e readquirimos o lock para gravar.
+   - `_salvar_estado` (`L179–L202`) escreve primeiro em um arquivo temporário por thread (`{data_file}.{tid}.tmp`) e faz substituição atômica via `os.replace` (com retry curto contra `PermissionError` transitório no Windows), evitando arquivos JSON vazios/truncados durante leituras concorrentes.
 
-- **Como funciona `Middleware._votar(metodo, *args)` ([`estufa/middleware.py`](estufa/middleware.py), linhas 41–91):**
-  1. **Chamada Paralela (linhas 49–61):** Cria um `ThreadPoolExecutor` com 3 *workers* e dispara `_chamar_controlador` para `ctrl_1`, `ctrl_2` e `ctrl_3` simultaneamente. Se um controlador estiver desligado (*crash*) ou demorar mais que `TIMEOUT_RPC_SEGUNDOS` (3s), a exceção é capturada no `except` (linha 59), registrada em `erros` e as demais respostas seguem normalmente.
-  2. **Normalização (`_normalizar`, linhas 69–76):**
-     ```python
-     def _normalizar(valor: Any) -> str:
-         if isinstance(valor, dict):
-             copia = {
-                 k: v for k, v in valor.items()
-                 if k not in ("ultima_atualizacao", "controlador_id")
-             }
-             return json.dumps(copia, sort_keys=True)
-         return str(valor)
-     ```
-     **Por que `_normalizar` existe?** Porque cada réplica grava seu próprio `controlador_id` (`"ctrl_1"`, `"ctrl_2"`, `"ctrl_3"`) e o instante exato (`ultima_atualizacao` via `time.time()`, que varia em microssegundos de um processo para outro). Removendo apenas esses dois metadados de instância e ordenando as chaves com `sort_keys=True`, duas réplicas honestas produzem **strings JSON idênticas**.
-  3. **Apuração de Votos (linhas 78–91):**
-     - `collections.Counter` conta quantas vezes cada JSON normalizado apareceu.
-     - `mais_comum, votos = contagem.most_common(1)[0]` pega a resposta mais votada.
-     - Se `votos < config.QUORUM_MINIMO` (isto é, menos de 2 votos concordantes), lança `ErroQuorum`.
-     - Se `votos >= 2`, retorna o dicionário original correspondente ao voto vencedor.
+2. **Eleição de Líder — Algoritmo Valentão / Bully (`L208–L387`):**
+   - Prioridade definida pelo `rank`: `ctrl_1 (1) < ctrl_2 (2) < ctrl_3 (3)`.
+   - `ping()` (`L208–L216`): retorna `{"status": "ok", "id": ..., "rank": ..., "lider_id": ...}`.
+   - `iniciar_eleicao(rank_origem)` (`L218–L228`): se `self.rank > rank_origem`, responde `{"aceito": True}` imediatamente e inicia `realizar_eleicao()` em thread daemon separada (sem bloquear o solicitante).
+   - `anunciar_lider(novo_lider_id)` (`L237–L254`): valida que o anunciante não tem `rank` inferior ao próprio (`_obter_rank_id(lider_limpo) < self.rank`, `L243–L246`). Se um nó inferior tentar se anunciar líder enquanto um superior está vivo, o superior rejeita e dispara nova eleição Bully.
+   - `realizar_eleicao()` (`L257–L341`): serializada por `self._eleicao_lock`. Consulta todos os pares de rank maior em paralelo (`L270–L295`). Se nenhum responder, assume `self.lider_id = self.ctrl_id`, persiste e envia `anunciar_lider` + `commit_estado` (se já houver estado inicializado e não for bizantino) para sincronizar imediatamente os pares (`L297–L322`). Se algum superior responder, aguarda brevemente (`0.25s`) e confirma o líder via `ping()` (`L324–L341`).
+   - `_loop_heartbeat()` (`L352–L387`): a cada `INTERVALO_HEARTBEAT_SEGUNDOS` (`2.0s`), se o nó não for o líder, executa `ping()` no líder atual. Se houver falha de conexão, timeout ou resposta inválida, imprime `[HEARTBEAT]` e chama `realizar_eleicao()`.
 
-- **Deduplicação em Comandos Manuais (linhas 97–107):**
-  - Em `comandar_bomba` e `comandar_exaustor`, o Middleware gera **um único `uuid.uuid4()`** antes de chamar `self._votar(...)` e passa esse `comando_id` para os 3 controladores. Assim, os 3 controladores publicam no MQTT com o mesmo UUID.
+3. **Recuperação de Réplica no Boot / Reconexão (`_sincronizar_com_cluster`, `L394–L482`):**
+   - Na inicialização (`__init__`, `L151`), `self.lider_id` começa sempre como `None` (não confia em líder antigo salvo em disco antes da queda).
+   - Em `iniciar_servidor_rpc()` (`L832–L848`), após subir o socket XML-RPC, o nó chama `_sincronizar_com_cluster()` antes de executar `realizar_eleicao()`.
+   - `_sincronizar_com_cluster()` coleta `obter_estado()` de todos os pares alcançáveis em paralelo (`L405–L425`), filtra nós ainda não inicializados se já existir estado ativo (`L431–L440`), tenta `ClusterMiddleware.calcular_consenso` (`L443`) e, em caso de empate (ex.: 1 nó atualizado vs 1 nó em reinício ou bizantino), prioriza o nó que responde como líder ativo e possui `ultima_atualizacao` mais recente (`L454–L460`), gravando o banco JSON local antes de voltar a operar.
 
----
+4. **Consenso Antes da Persistência e Publicação Exclusiva do Líder (`L489–L670`):**
+   - `coletar_voto_estado(proposta)` (`L489–L537`): se `self.byzantino` for `True` (`L495–L502`), retorna valores adulterados (`temperatura=999.9, umidade=-50.0` e atuadores invertidos). Caso contrário, valida os limites físicos (`_validar_limites_sensor`) da proposta recebida e avalia as regras de histerese em `_avaliar_regras_atuacao` (`L58–L79`).
+   - `_coordenar_consenso_e_persistir()` (`L578–L670`): executado apenas pelo Líder:
+     1. Coleta o próprio voto e os votos de todos os pares ativos em paralelo (`L593–L618`).
+     2. Apura o estado oficial via `ClusterMiddleware.calcular_consenso(votos)` (`L623`).
+     3. Carimba `ultima_atualizacao` (UTC ISO-8601) e `lider_id = self.ctrl_id` (`L624–L625`).
+     4. Grava localmente via `commit_estado` (`L627`) e envia `commit_estado` em paralelo para todos os seguidores alcançáveis (`L629–L648`), garantindo que `data_ctrl_1.json`, `data_ctrl_2.json` e `data_ctrl_3.json` fiquem idênticos.
+     5. Somente se `self.eh_lider()` (`L650–L668`), publica o comando MQTT (`_publicar_comando`, `L567–L575`) quando há alteração de estado ou comando manual.
 
-### Passo 5: [`estufa/atuador.py`](estufa/atuador.py) (118 linhas)
-Subscreve aos tópicos `estufa/atuadores/bomba` e `estufa/atuadores/exaustor`:
-- **Cache LRU com `OrderedDict` (`_is_duplicado`, linhas 25–41):**
-  - Na linha 22: `_dedup_cache = collections.OrderedDict()`.
-  - Quando chega uma mensagem MQTT em `_on_message` (linha 88), extrai `comando_id = payload.get("comando_id", "")`.
-  - Se `comando_id` **já está** em `_dedup_cache` (linha 33): chama `_dedup_cache.move_to_end(comando_id)` (marca como usado recentemente) e retorna `True` $\rightarrow$ o atuador imprime `"Comando duplicado descartado"` e ignora!
-  - Se `comando_id` **não está** no cache (linha 37): insere no fim (`_dedup_cache[comando_id] = True`). Se o tamanho passar de `DEDUP_CACHE_SIZE` (50), remove o item mais antigo do início da fila com `_dedup_cache.popitem(last=False)` (linha 39) e retorna `False` $\rightarrow$ o atuador executa a ação e publica o status em `estufa/status/...`.
+5. **Consumo MQTT e Comandos Manuais (`L677–L826`):**
+   - `_on_connect` (`L677–L683`) assina `estufa/sensores/temperatura` e `estufa/sensores/umidade_solo` com `qos=1`.
+   - `_on_message` (`L685–L727`) valida JSON e limites físicos; apenas o Líder dispara `_coordenar_consenso_e_persistir`, enquanto seguidores aguardam a votação/commit do Líder (sem escrever JSON divergente por conta própria!).
+   - `_executar_comando_atuador` (`L747–L818`): se o cliente ou um failover chamar `comandar_bomba`/`comandar_exaustor` em um seguidor, o seguidor encaminha ao líder atual com timeout `self._timeout_rpc * 2.5` (`L763–L767`); se o líder caiu, dispara `realizar_eleicao()` imediatamente e executa/encaminha ao novo líder.
 
 ---
 
-### Passo 6: [`estufa/cliente.py`](estufa/cliente.py) (134 linhas)
-Interface CLI para o operador:
-- Instancia `xmlrpc.client.ServerProxy("http://localhost:9000", allow_none=True)` (linhas 19–21).
-- Tem dois modos de operação:
-  1. **Menu interativo** (padrão, linhas 42–100): opções `1` a `6` para consultar estado, ligar/desligar bomba e exaustor, e verificar saúde (`verificar_saude`, que chama `ping()` em cada controlador).
-  2. **Modo automático** (`--auto`, linhas 103–117): faz *polling* de `obter_estado()` a cada 3 segundos.
+### 2.4 `estufa/cliente.py` (`130` linhas)
+- Instancia `ClusterMiddleware()` diretamente (`L126`), sem qualquer referência à porta `9000`.
+- `_executar_acao_segura` (`L41–L57`) captura `ErroQuorum`, `xmlrpc.client.Fault` e exceções de rede (`ConnectionRefusedError`, `TimeoutError`, `socket.timeout`, `OSError`) para que o terminal do cliente nunca feche quando o professor derruba controladores.
+- `menu_interativo` (`L60–L105`) oferece consulta com consenso (`1`), acionamento direto (`2..5`) e diagnóstico de saúde + liderança atual do cluster (`6`).
 
 ---
 
-## 4. Os Dois Fluxos de Ponta a Ponta (Para Explicar Sem Hesitar)
-
-### Fluxo A: Acionamento Autônomo (Via Sensor $\rightarrow$ MQTT)
-1. **Sensor** (`sensor.py`) publica no tópico `estufa/sensores/temperatura`: `{"valor": 38.5, "unidade": "°C", "timestamp": 1700000100.25}`.
-2. **Broker Mosquitto** entrega cópia dessa mensagem para `ctrl_1`, `ctrl_2` e `ctrl_3`.
-3. **Cada Controlador** (`controlador.py`, `_on_message` $\rightarrow$ `_decidir_atuacao`) vê que `38.5 > 35.0` e que o exaustor está desligado.
-4. **Cada Controlador** calcula `MD5("exaustor_ligar_1700000100.25")` $\rightarrow$ todos os 3 obtêm o mesmo hash (ex.: `a1b2c3d4...`) e publicam em `estufa/atuadores/exaustor`.
-5. **Atuador** (`atuador.py`) recebe as 3 mensagens do broker:
-   - Na 1ª (ex.: do `ctrl_1`): `a1b2c3d4...` não está no `_dedup_cache` $\rightarrow$ **liga o exaustor** e guarda no cache.
-   - Na 2ª e 3ª (do `ctrl_2` e `ctrl_3`): `a1b2c3d4...` já está no `_dedup_cache` $\rightarrow$ **descarta silenciosamente**.
-
-### Fluxo B: Acionamento Manual (Via Cliente $\rightarrow$ XML-RPC $\rightarrow$ MQTT)
-1. **Cliente** (`cliente.py`) escolhe a opção `2` (Ligar bomba) $\rightarrow$ chama `proxy.comandar_bomba("ligar")` na porta `9000`.
-2. **Middleware** (`middleware_server.py` $\rightarrow$ `middleware.py`) gera **um único UUID4** (ex.: `f47ac10b-...`) e chama em paralelo `comandar_bomba("ligar", "f47ac10b-...")` nas portas `8001`, `8002` e `8003`.
-3. **Cada Controlador honesto** atualiza seu JSON, publica no tópico MQTT `estufa/atuadores/bomba` usando o `comando_id = "f47ac10b-..."` e retorna via XML-RPC: `{"sucesso": True, "mensagem": "Bomba ligada com sucesso", "controlador_id": "ctrl_X"}`.
-4. **Atuador** recebe as publicações MQTT com `f47ac10b-...`, executa a primeira e descarta as demais pelo cache LRU.
-5. **Middleware** normaliza as respostas XML-RPC (removendo `controlador_id`), contabiliza os votos (`>= 2` votos para `"Bomba ligada com sucesso"`) e devolve o resultado aprovado para o **Cliente**.
+### 2.5 `estufa/sensor.py` (`170` linhas)
+- `SimuladorAmbiente` (`L27–L74`): valida temperatura inicial (`-50..100°C`) e umidade inicial (`0..100%`). Sem perfis estáticos: quando `exaustor_ligado=False`, a temperatura sobe (`+1.6..+2.6°C`); quando `True`, cai (`-3.5..-2.2°C`). Quando `bomba_ligada=False`, a umidade cai (`-4.0..-2.5%`); quando `True`, sobe (`+5.0..+7.5%`). Valores limitados a `[0, 55]°C` e `[0, 100]%`.
+- `_on_connect` (`L78–L84`) e `_on_message` (`L88–L103`) são registrados **antes** de `client.connect()` (`L136–L138`) e assinam `estufa/status/bomba` e `estufa/status/exaustor` com `qos=1` para fechar a malha do simulador.
+- `executar_sensor` (`L119–L156`) valida `intervalo > 0.05` e publica com `qos=1` e `wait_for_publish()` (`L114–L115`). CLI aceita `--temp`, `--umidade` e `--intervalo` (`L159–L170`).
 
 ---
 
-## 5. Como Funcionam os Testes Automatizados (`tests/`)
-
-Se o professor pedir para rodar os testes (`pytest tests/ -v`) ou perguntar como eles funcionam sem precisar subir o Docker:
-
-1. **[`tests/test_atuador.py`](tests/test_atuador.py) (7 testes):**
-   - Importa diretamente `_is_duplicado` e `_dedup_cache` de `estufa.atuador`.
-   - Usa uma *fixture* `limpar_cache` (`autouse=True`) que limpa o `OrderedDict` antes de cada teste.
-   - Testa: ID inédito retorna `False`; mesmo ID na 2ª chamada retorna `True`; preenchimento de 50 itens + inserção do 51º item remove o `uuid-0000` (evicção FIFO/LRU); acesso a `uuid-0000` antes de inserir o 51º item usa `move_to_end` e preserva `uuid-0000` (removendo `uuid-0001`).
-2. **[`tests/test_controlador.py`](tests/test_controlador.py) (29 testes):**
-   - Usa a fixture nativa `tmp_path` do `pytest` para criar arquivos JSON temporários isolados em cada teste.
-   - Injeta leituras diretamente em `ctrl._estado` (`_injetar_sensor`) e substitui `ctrl._publicar_comando` por uma *lambda* em memória para verificar que as 3 réplicas geram exatamente o mesmo hash MD5, respeitam a histerese e persistem o JSON.
-   - Em `TestModoByantino`, verifica que um controlador com `byzantino=True` retorna `temperatura=999.0` e estados invertidos em `obter_estado()`, e retorna a mensagem oposta em `comandar_bomba`/`comandar_exaustor` sem alterar `self._estado`.
-3. **[`tests/test_middleware.py`](tests/test_middleware.py) (15 testes):**
-   - Usa `unittest.mock.patch.object(middleware, "_criar_proxy", ...)` para interceptar as chamadas XML-RPC sem abrir conexão de rede.
-   - Testa: quórum 3/3 com `controlador_id` distintos; quórum 2/3 quando 1 controlador lança `ConnectionRefusedError`; `ErroQuorum` quando todos caem ou quando os 3 divergem; mascaramento de 1 controlador bizantino tanto em `obter_estado` quanto em `comandar_bomba`; e geração de UUID compartilhado entre as 3 réplicas na mesma chamada.
+### 2.6 `estufa/atuador.py` (`96` linhas)
+- Removeu cache LRU e hash MD5 porque apenas o Líder publica após consenso.
+- `_on_connect` (`L22–L28`) assina `estufa/atuadores/bomba` e `estufa/atuadores/exaustor` com `qos=1`.
+- `_processar_atuador` (`L42–L63`) unifica bomba e exaustor, valida `"ligar"`/`"desligar"`, atualiza `_estado_bomba`/`_estado_exaustor` e chama `_publicar_status` (`L31–L39`) com `qos=1` para realimentar o sensor.
 
 ---
 
-## 6. O Que Está no Relatório Técnico ([`relatorio/relatorio.md`](relatorio/relatorio.md))
-
-O relatório segue uma estrutura acadêmica direta em 9 seções que espelha exatamente o código:
-- **Seções 1 e 2:** Motivação e Arquitetura Híbrida (MQTT para fluxo contínuo de sensores/atuadores + XML-RPC para controle e leitura com quórum).
-- **Seção 3:** Replicação Ativa e os 5 passos da Transferência de Estado (*State Transfer*) no boot dos controladores.
-- **Seção 4:** Tolerância a Falhas por Parada (*Crash*) com quórum 2/3 e recuperação de réplicas.
-- **Seção 5:** Tolerância a Falhas Bizantinas via Mascaramento por Votação Majoritária (TMR, $N = 2f + 1 = 3$) e explicação da função `_normalizar()`.
-- **Seção 6:** Deduplicação no Atuador combinando hash MD5 determinístico (eventos de sensores) + UUID4 (comandos manuais) + Cache LRU.
-- **Seções 7, 8 e 9:** Tabela de parâmetros (`config.py`), resumo da suíte de testes (`pytest`) e conclusão relacionando os conceitos da disciplina.
+### 2.7 `estufa/broker_local.py` (`336` linhas)
+- Servidor TCP MQTT v3.1.1 em Python puro (`127.0.0.1:1883`) sem necessidade de Docker ou Admin.
+- Implementa codificação/decodificação varint limitada a 4 bytes (`L17–L44`), `CONNECT/CONNACK`, `SUBSCRIBE/SUBACK`, `PUBLISH/PUBACK` (`QoS 0` e `QoS 1`, liberando `wait_for_publish()` na linha `L290`), `PINGREQ/PINGRESP` e `DISCONNECT` (`L189–L308`).
+- `executar_broker` (`L317–L328`) valida host e porta (`1..65535`) e, se a porta já estiver ocupada (`_porta_em_uso`, `L311–L314`), avisa e encerra imediatamente sem travar.
 
 ---
 
-## 7. Perguntas Clássicas do Professor na Bancada (e Como Responder)
+## 3. Perguntas Frequentes na Apresentação (Q&A)
 
-### P1: *"Por que você usou 3 réplicas ($2f+1$) para tolerar 1 falha bizantina? O problema dos Generais Bizantinos não exige $3f+1 = 4$ réplicas?"*
-> **Resposta:** *"O limite $3f+1 = 4$ se aplica ao consenso bizantino distribuído entre pares (como PBFT), onde os próprios nós trocam mensagens entre si sem um votador confiável para chegar a um acordo. Aqui nós implementamos o modelo de **Mascaramento de Falhas por Votação Majoritária (TMR — Triple Modular Redundancy)**: os sensores entregam os mesmos dados para as 3 réplicas via broker, e o **Middleware atua como um votador confiável** que compara as respostas recebidas. Em um votador majoritário, para superar $f=1$ resposta falsa, bastam $2f+1 = 3$ réplicas (2 votos honestos contra 1 voto bizantino)."*
-
-### P2: *"Por que o sistema usa MQTT e XML-RPC juntos em vez de usar só um deles?"*
-> **Resposta:** *"Para aplicar o paradigma mais adequado à natureza de cada comunicação. A leitura de sensores é um fluxo contínuo de telemetria de 1-para-N (1 sensor para 3 controladores), onde o modelo publicar/assinar assíncrono do **MQTT** evita acoplamento: o sensor publica no tópico sem precisar saber quantos controladores existem ou em quais portas estão. Já a interação do Cliente com o Middleware e do Middleware com os Controladores é do tipo requisição-resposta imediata (consulta de estado ou comando com confirmação de quórum), cenário em que a chamada síncrona de procedimento remoto (**XML-RPC**) é muito mais direta."*
-
-### P3: *"Se os 3 controladores tomam decisão sozinhos quando chega mensagem MQTT do sensor, onde entra a tolerância a falhas na decisão autônoma?"*
-> **Resposta:** *"Na decisão autônoma ela ocorre por **replicação ativa**: como todos os 3 controladores assinam o broker MQTT, se 1 controlador sofrer crash, os outros 2 continuam recebendo as leituras do sensor e publicando o comando para o atuador. E enquanto os 3 estão vivos, o atuador filtra as 2 mensagens repetidas usando o cache LRU baseado no hash MD5 do timestamp do sensor."*
-
-### P4: *"E se um controlador em modo `--byzantino` publicar comandos falsos direto no MQTT quando ler um sensor?"*
-> **Resposta:** *"No nosso escopo, o modo `--byzantino` foi modelado na interface XML-RPC (`obter_estado`, `comandar_bomba` e `comandar_exaustor`) para demonstrar o motor de votação majoritária do Middleware. Se quiséssemos impedir que um controlador bizantino publicasse comandos autônomos falsos direto no MQTT, o Atuador também precisaria aguardar 2 mensagens concordantes (votação no atuador) antes de acionar o pino físico, ou toda atuação precisaria passar pelo votador do Middleware."* (Excelente resposta caso ele explore limites arquiteturais!).
-
-### P5: *"Como você garante que dois comandos iguais enviados em momentos diferentes não sejam descartados como duplicados pelo atuador?"*
-> **Resposta:** *"Porque o `comando_id` nunca depende apenas do nome da ação:
-> 1. No modo manual, o Middleware gera um `uuid.uuid4()` novo a cada clique do usuário (`middleware.py`, linhas 99 e 105).
-> 2. No modo autônomo, o controlador concatena a ação com o `sensor_timestamp` (`f'{acao}_{sensor_ts}'`, `controlador.py`, linha 118). Uma leitura futura terá outro timestamp e, portanto, outro hash MD5."*
-
----
-
-## 8. Roteiro Rápido para Demonstração Prática ao Vivo
-
-Se o professor pedir para ver funcionando na hora:
-
-1. **Mostrar os testes unitários passando (leva 0.1s):**
-   ```bash
-   pytest tests/ -v
-   ```
-2. **Subir o sistema completo:**
-   ```bash
-   bash scripts/start_all.sh
-   # E abrir o cliente:
-   python3 -m estufa.cliente
-   ```
-3. **Demonstrar Tolerância a Crash (Quórum 2/3) e *State Transfer*:**
-   - No cliente, digite `6` (Verificar saúde): mostrará `ctrl_1: ok`, `ctrl_2: ok`, `ctrl_3: ok`.
-   - Mate o processo do `ctrl_3` (ou feche o terminal dele).
-   - No cliente, digite `6`: mostrará `ctrl_3: OFFLINE`.
-   - No cliente, digite `2` (Ligar bomba): o Middleware mostrará nos logs que `ctrl_3` falhou, mas o quórum 2/3 foi atingido com `ctrl_1` e `ctrl_2`, e a bomba ligará normalmente!
-   - Suba o `ctrl_3` novamente:
-     ```bash
-     python3 -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json
-     ```
-     Mostre no log do `ctrl_3` a mensagem: `[ctrl_3] Estado sincronizado na tentativa 1/10 (Bomba=True...)` — provando o *State Transfer*!
-4. **Demonstrar Tolerância a Falha Bizantina:**
-   - Pare o `ctrl_2` e suba-o com `--byzantino`:
-     ```bash
-     python3 -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json --byzantino
-     ```
-   - No cliente, digite `1` (Consultar estado) ou `2` (Ligar bomba): mostre no log do Middleware que houve `2` votos para o estado honesto e `1` voto para o estado adulterado (`999.0 °C`), e que o cliente recebeu o valor honesto!
+1. **"Onde está o Middleware no diagrama de vocês?"**
+   - Seguindo a Figura 1 do enunciado, o middleware não é um processo separado na porta `9000` (que seria um ponto único de falha). Ele é a camada lógica distribuída formada pelo `ClusterMiddleware` embarcado no cliente e pela comunicação P2P XML-RPC entre os próprios controladores (`8001..8003`).
+2. **"Como o cliente sabe para quem enviar comandos se qualquer controlador pode cair?"**
+   - O `ClusterMiddleware` conhece os 3 endpoints (`8001..8003`), mantém cache do último líder e ordena por rank (`ctrl_3 -> ctrl_2 -> ctrl_1`). Se o alvo cair ou der timeout, `_chamar_com_failover` migra automaticamente para o próximo nó vivo. Se cair em um seguidor, o próprio seguidor encaminha ao líder ou dispara nova eleição.
+3. **"Por que não há divergência nos bancos locais mesmo se um nó perder mensagens ou for bizantino?"**
+   - Nenhum controlador persiste leitura MQTT isoladamente. O líder coleta os votos de todos os nós ativos (`coletar_voto_estado`), apura o quórum em `calcular_consenso` (que descarta o voto adulterado do `--byzantino` pela maioria `2/3`) e só então envia `commit_estado` atômico para todas as réplicas gravarem exatamente o mesmo JSON.
+4. **"O que acontece se eu fechar dois dos três controladores?"**
+   - Ao fechar `ctrl_3`, `ctrl_2` vence a eleição Bully e o sistema opera em `2/2`. Ao fechar `ctrl_2`, `ctrl_1` assume liderança em modo degradado `1/1`, mantendo disponibilidade para o cliente e para a estufa. Quando `ctrl_2` e `ctrl_3` são religados, ambos puxam o estado atualizado via `_sincronizar_com_cluster` antes de retomar a liderança Bully.
+5. **"E se houver 1 controlador honesto e 1 bizantino ao mesmo tempo (com o terceiro fechado)?"**
+   - Com 2 nós ativos divergindo (`1 vs 1`), `calcular_consenso` detecta o empate sem maioria e lança `ErroQuorum`, recusando gravar ou confirmar estado corrompido até que a maioria seja restabelecida.
