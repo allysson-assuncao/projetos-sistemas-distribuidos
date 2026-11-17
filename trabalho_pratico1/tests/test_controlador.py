@@ -1,326 +1,305 @@
 """
-test_controlador.py — Testes unitários da classe Controlador.
+test_controlador.py — Testes unitários e de integração do Controlador distribuído.
 
-Cobre carregamento e persistência de estado, geração determinística de
-comando_id por hash MD5, regras de acionamento de bomba e exaustor,
-comportamento em modo bizantino e comandos manuais via XML-RPC.
+Cobre:
+- Inicialização, persistência JSON e validação de configuração/limites.
+- Algoritmo Bully de eleição de líder e failover após queda do líder.
+- Consenso dinâmico (3/3, 2/3 mascarando --byzantino, 2/2 e 1/1 degradado).
+- Replicação síncrona via commit_estado mantendo data_ctrl_*.json idênticos.
+- Publicação MQTT exclusiva do Líder e sincronização automática ao reconectar.
 """
 
-import hashlib
 import json
+import socket
+import time
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 import pytest
 
-from estufa.controlador import Controlador
 from estufa import config
+from estufa.controlador import Controlador, _avaliar_regras_atuacao
+from estufa.middleware import ClusterMiddleware, ErroQuorum
 
 
-@pytest.fixture
-def tmp_data_file(tmp_path):
-    """Retorna o caminho de um arquivo JSON temporário de estado."""
-    return str(tmp_path / "data_ctrl_test.json")
+def _porta_livre() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
-@pytest.fixture
-def controlador(tmp_data_file):
-    """Instância padrão de Controlador para testes."""
-    return Controlador(ctrl_id="ctrl_test", data_file=tmp_data_file)
+def _aguardar(condicao, timeout: float = 3.0) -> None:
+    """Aguarda uma condição assíncrona em testes sem depender de sleeps fixos frágeis."""
+    limite = time.monotonic() + timeout
+    while time.monotonic() < limite:
+        if condicao():
+            return
+        time.sleep(0.05)
+    assert condicao()
 
 
-@pytest.fixture
-def controlador_byzantino(tmp_data_file):
-    """Instância de Controlador configurada em modo bizantino."""
-    return Controlador(ctrl_id="ctrl_byz", data_file=tmp_data_file, byzantino=True)
+def _criar_cluster(tmp_path, byzantinos: set[str] | None = None, heartbeat: float = 0.2):
+    """Instancia configuração isolada para 3 controladores em portas livres e tmp_path."""
+    byzantinos = byzantinos or set()
+    pares = [
+        {
+            "id": "ctrl_1",
+            "rank": 1,
+            "host": "127.0.0.1",
+            "port": _porta_livre(),
+            "data_file": str(tmp_path / "data_ctrl_1.json"),
+        },
+        {
+            "id": "ctrl_2",
+            "rank": 2,
+            "host": "127.0.0.1",
+            "port": _porta_livre(),
+            "data_file": str(tmp_path / "data_ctrl_2.json"),
+        },
+        {
+            "id": "ctrl_3",
+            "rank": 3,
+            "host": "127.0.0.1",
+            "port": _porta_livre(),
+            "data_file": str(tmp_path / "data_ctrl_3.json"),
+        },
+    ]
+
+    ctrls = {}
+    for cfg in pares:
+        ctrls[cfg["id"]] = Controlador(
+            ctrl_id=cfg["id"],
+            port=cfg["port"],
+            data_file=cfg["data_file"],
+            host=cfg["host"],
+            byzantino=(cfg["id"] in byzantinos),
+            pares=pares,
+            timeout_rpc=0.35,
+            heartbeat_interval=heartbeat,
+        )
+    return ctrls, pares
 
 
-def _injetar_sensor(ctrl: Controlador, temperatura=None, umidade=None, sensor_ts=1234567890.0):
-    """Define valores de telemetria diretamente no estado interno da réplica."""
-    with ctrl._lock:
-        if temperatura is not None:
-            ctrl._estado["temperatura"] = temperatura
-        if umidade is not None:
-            ctrl._estado["umidade_solo"] = umidade
-        ctrl._estado["sensor_timestamp"] = sensor_ts
+def _ler_json(caminho: str) -> dict:
+    with open(caminho, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-def _executar_decisao(ctrl: Controlador):
-    """Executa a avaliação de regras sem conexão MQTT ativa."""
-    ctrl._mqtt_client = None
-    with ctrl._lock:
-        ctrl._decidir_atuacao()
+class TestUnidadeControlador:
+    def test_resolucao_config_simplificada(self):
+        """Aceita números (1..3) ou IDs ('ctrl_1'..'ctrl_3') e rejeita inválidos."""
+        assert config.obter_config_controlador(1)["port"] == 8001
+        assert config.obter_config_controlador("2")["id"] == "ctrl_2"
+        assert config.obter_config_controlador("ctrl_3")["data_file"] == "data_ctrl_3.json"
+
+        with pytest.raises(ValueError):
+            config.obter_config_controlador(0)
+        with pytest.raises(ValueError):
+            config.obter_config_controlador("ctrl_9")
+        with pytest.raises(ValueError):
+            config.obter_config_controlador(True)
+
+    def test_inicializacao_e_fallback_json_corrompido(self, tmp_path):
+        """Inicializa estado padrão se arquivo não existir ou estiver corrompido."""
+        arq = str(tmp_path / "data_ctrl_1.json")
+        ctrl_novo = Controlador(ctrl_id="ctrl_1", data_file=arq)
+        assert ctrl_novo._estado["bomba_ligada"] is False
+        assert ctrl_novo._estado["umidade"] is None
+
+        with open(arq, "w", encoding="utf-8") as f:
+            f.write("{corrompido")
+        ctrl_corrompido = Controlador(ctrl_id="ctrl_1", data_file=arq)
+        assert ctrl_corrompido._estado["temperatura"] is None
+
+    def test_regras_histerese_bomba_e_exaustor(self):
+        """Valida acionamento e desligamento dentro das bandas de histerese."""
+        bomba, exaustor = _avaliar_regras_atuacao(36.5, 25.0, False, False)
+        assert bomba is True and exaustor is True
+
+        bomba, exaustor = _avaliar_regras_atuacao(22.0, 50.0, True, True)
+        assert bomba is True and exaustor is True  # mantém na faixa morta
+
+        bomba, exaustor = _avaliar_regras_atuacao(14.0, 72.0, True, True)
+        assert bomba is False and exaustor is False
+
+    def test_modo_byzantino_e_validacao_commit(self, tmp_path):
+        """Modo bizantino retorna valores adulterados e commit_estado valida schema."""
+        arq = str(tmp_path / "byz.json")
+        ctrl = Controlador(ctrl_id="ctrl_2", data_file=arq, byzantino=True)
+
+        voto = ctrl.coletar_voto_estado({"temperatura": 25.0, "umidade": 50.0})
+        assert voto["temperatura"] == 999.9
+        assert voto["umidade"] == -50.0
+        assert voto["bomba_ligada"] is True
+
+        with pytest.raises(ValueError):
+            ctrl.commit_estado({"temperatura": 999.0, "bomba_ligada": True, "exaustor_ligado": False})
+        with pytest.raises(ValueError):
+            ctrl.commit_estado({"bomba_ligada": "sim", "exaustor_ligado": False})
 
 
-class TestInicializacao:
-    def test_estado_inicial_quando_arquivo_nao_existe(self, tmp_data_file):
-        """Deve inicializar com valores padrão quando o arquivo JSON não existe."""
-        ctrl = Controlador(ctrl_id="ctrl_test", data_file=tmp_data_file)
-        assert ctrl._estado["bomba_ligada"] is False
-        assert ctrl._estado["exaustor_ligado"] is False
-        assert ctrl._estado["temperatura"] is None
-        assert ctrl._estado["umidade_solo"] is None
-        assert ctrl._estado["controlador_id"] == "ctrl_test"
+class TestIntegracaoClusterDistribuido:
+    """Testes reais com servidores XML-RPC locais para eleição, consenso e recuperação."""
 
-    def test_estado_carregado_do_arquivo_existente(self, tmp_data_file):
-        """Deve restaurar o estado persistido em arquivo JSON pré-existente."""
-        estado_salvo = {
-            "temperatura": 28.5,
-            "umidade_solo": 45.0,
-            "bomba_ligada": True,
-            "exaustor_ligado": False,
-            "ultima_atualizacao": 1234567890.0,
-            "sensor_timestamp": 1234567890.0,
-            "controlador_id": "ctrl_old",
-        }
-        with open(tmp_data_file, "w", encoding="utf-8") as f:
-            json.dump(estado_salvo, f)
+    def test_tp01_eleicao_bully_elege_maior_rank(self, tmp_path):
+        """TP-01: Ao iniciar os 3 controladores, ctrl_3 é eleito líder pelo algoritmo Bully."""
+        ctrls, _ = _criar_cluster(tmp_path)
+        try:
+            ctrls["ctrl_1"].iniciar_servidor_rpc()
+            assert ctrls["ctrl_1"].eh_lider() is True
 
-        ctrl = Controlador(ctrl_id="ctrl_test", data_file=tmp_data_file)
-        assert ctrl._estado["bomba_ligada"] is True
-        assert ctrl._estado["controlador_id"] == "ctrl_test"
+            ctrls["ctrl_2"].iniciar_servidor_rpc()
+            assert ctrls["ctrl_2"].eh_lider() is True
+            assert ctrls["ctrl_1"].lider_id == "ctrl_2"
 
-    def test_arquivo_json_corrompido_usa_estado_inicial(self, tmp_data_file):
-        """Arquivo JSON inválido deve fazer fallback para o estado inicial."""
-        with open(tmp_data_file, "w", encoding="utf-8") as f:
-            f.write("INVALID JSON {{{")
+            ctrls["ctrl_3"].iniciar_servidor_rpc()
+            assert ctrls["ctrl_3"].eh_lider() is True
+            assert ctrls["ctrl_1"].lider_id == "ctrl_3"
+            assert ctrls["ctrl_2"].lider_id == "ctrl_3"
+        finally:
+            for c in ctrls.values():
+                c.parar()
 
-        ctrl = Controlador(ctrl_id="ctrl_test", data_file=tmp_data_file)
-        assert ctrl._estado["bomba_ligada"] is False
-        assert ctrl._estado["temperatura"] is None
+    def test_tp02_consenso_commit_mantem_bancos_json_identicos(self, tmp_path):
+        """TP-02: Consenso coordenado pelo líder grava dados idênticos nos 3 arquivos JSON."""
+        ctrls, pares = _criar_cluster(tmp_path)
+        try:
+            for cid in ("ctrl_1", "ctrl_2", "ctrl_3"):
+                ctrls[cid].iniciar_servidor_rpc()
 
+            mw = ClusterMiddleware(controladores=pares, timeout=1.0)
+            resp = mw.comandar_bomba(True)
+            assert resp["bomba_ligada"] is True
+            assert resp["lider_id"] == "ctrl_3"
 
-class TestComandoIdDeterministico:
-    """Verifica que as 3 réplicas geram o mesmo hash MD5 para o mesmo evento de sensor."""
+            d1 = _ler_json(ctrls["ctrl_1"].data_file)
+            d2 = _ler_json(ctrls["ctrl_2"].data_file)
+            d3 = _ler_json(ctrls["ctrl_3"].data_file)
 
-    def _expected_id(self, acao: str, sensor_ts: float) -> str:
-        raw = f"{acao}_{sensor_ts}"
-        return hashlib.md5(raw.encode("utf-8")).hexdigest()
+            assert d1 == d2 == d3
+            assert d1["bomba_ligada"] is True
+            assert d1["lider_id"] == "ctrl_3"
+        finally:
+            for c in ctrls.values():
+                c.parar()
 
-    def test_tres_replicas_geram_mesmo_id_para_exaustor_ligar(self, tmp_path):
-        """Três réplicas independentes produzem o mesmo comando_id ao ligar o exaustor."""
-        sensor_ts = 1700000000.123
-        expected = self._expected_id("exaustor_ligar", sensor_ts)
+    def test_tp04_apenas_lider_publica_comando_mqtt(self, tmp_path):
+        """TP-04: Mesmo recebendo a mesma leitura MQTT, somente o líder publica atuação."""
+        ctrls, _ = _criar_cluster(tmp_path)
+        try:
+            for cid in ("ctrl_1", "ctrl_2", "ctrl_3"):
+                ctrls[cid].iniciar_servidor_rpc()
+                ctrls[cid]._mqtt_client = MagicMock()
 
-        ids = []
-        for replica_id in ["ctrl_1", "ctrl_2", "ctrl_3"]:
-            fname = str(tmp_path / f"{replica_id}.json")
-            ctrl = Controlador(ctrl_id=replica_id, data_file=fname)
-            with ctrl._lock:
-                ctrl._estado["sensor_timestamp"] = sensor_ts
-                raw = f"exaustor_ligar_{sensor_ts}"
-                ids.append(hashlib.md5(raw.encode("utf-8")).hexdigest())
+            msg_temp = SimpleNamespace(
+                topic=config.TOPIC_TEMPERATURA,
+                payload=b'{"valor": 38.5}',
+            )
+            # Os 3 recebem a leitura MQTT
+            for cid in ("ctrl_1", "ctrl_2", "ctrl_3"):
+                ctrls[cid]._on_message(None, None, msg_temp)
 
-        assert ids[0] == ids[1] == ids[2] == expected
+            assert ctrls["ctrl_1"]._mqtt_client.publish.call_count == 0
+            assert ctrls["ctrl_2"]._mqtt_client.publish.call_count == 0
+            assert ctrls["ctrl_3"]._mqtt_client.publish.call_count == 1
 
-    def test_tres_replicas_geram_mesmo_id_para_bomba_ligar(self):
-        """O hash MD5 para acionamento da bomba é determinístico para o mesmo timestamp."""
-        sensor_ts = 1700000042.999
-        raw = f"bomba_ligar_{sensor_ts}"
-        expected = hashlib.md5(raw.encode("utf-8")).hexdigest()
+            topico_pub = ctrls["ctrl_3"]._mqtt_client.publish.call_args[0][0]
+            assert topico_pub == config.TOPIC_ATUADOR_EXAUSTOR
+            assert _ler_json(ctrls["ctrl_1"].data_file)["exaustor_ligado"] is True
+            assert _ler_json(ctrls["ctrl_2"].data_file)["exaustor_ligado"] is True
+            assert _ler_json(ctrls["ctrl_3"].data_file)["exaustor_ligado"] is True
+        finally:
+            for c in ctrls.values():
+                c.parar()
 
-        result1 = hashlib.md5(raw.encode("utf-8")).hexdigest()
-        result2 = hashlib.md5(raw.encode("utf-8")).hexdigest()
-        assert result1 == result2 == expected
+    def test_te01_e_te03_failover_e_degradacao_sequencial_ate_1_ativo(self, tmp_path):
+        """TE-01 & TE-03: Queda de ctrl_3 elege ctrl_2; queda de ctrl_2 mantém ctrl_1 em 1/1."""
+        ctrls, pares = _criar_cluster(tmp_path, heartbeat=0.15)
+        try:
+            for cid in ("ctrl_1", "ctrl_2", "ctrl_3"):
+                ctrls[cid].iniciar_servidor_rpc()
 
-    def test_decisao_atuacao_tres_replicas_publicam_mesmo_comando_id(self, tmp_path):
-        """As 3 réplicas publicam o mesmo comando_id ao avaliar temperatura crítica."""
-        sensor_ts = 1700000099.5
-        published_ids = []
+            mw = ClusterMiddleware(controladores=pares, timeout=2.0)
 
-        for replica_id in ["ctrl_1", "ctrl_2", "ctrl_3"]:
-            fname = str(tmp_path / f"{replica_id}.json")
-            ctrl = Controlador(ctrl_id=replica_id, data_file=fname)
-            ctrl._publicar_comando = lambda topico, acao, cmd_id: published_ids.append((acao, cmd_id))
+            # Derruba o líder ctrl_3 (restam 2 ativos -> 2/2)
+            ctrls["ctrl_3"].parar()
+            _aguardar(lambda: ctrls["ctrl_2"].eh_lider() and ctrls["ctrl_1"].lider_id == "ctrl_2")
 
-            with ctrl._lock:
-                ctrl._estado["temperatura"] = config.TEMP_MAX_CELSIUS + 5.0
-                ctrl._estado["sensor_timestamp"] = sensor_ts
-                ctrl._decidir_atuacao()
+            resp2 = mw.comandar_exaustor(True)
+            assert resp2["exaustor_ligado"] is True
+            assert resp2["lider_id"] == "ctrl_2"
+            assert _ler_json(ctrls["ctrl_1"].data_file) == _ler_json(ctrls["ctrl_2"].data_file)
 
-        expected_id = hashlib.md5(f"exaustor_ligar_{sensor_ts}".encode("utf-8")).hexdigest()
-        assert published_ids == [("ligar", expected_id)] * 3
+            # Derruba ctrl_2 (resta 1 ativo -> modo degradado 1/1)
+            ctrls["ctrl_2"].parar()
+            _aguardar(lambda: ctrls["ctrl_1"].eh_lider())
 
-    def test_decisao_bomba_tres_replicas_publicam_mesmo_comando_id(self, tmp_path):
-        """As 3 réplicas publicam o mesmo comando_id ao avaliar umidade crítica."""
-        sensor_ts = 1700000100.2
-        published_ids = []
+            resp1 = mw.comandar_bomba(True)
+            assert resp1["bomba_ligada"] is True
+            assert resp1["lider_id"] == "ctrl_1"
+            assert _ler_json(ctrls["ctrl_1"].data_file)["bomba_ligada"] is True
+        finally:
+            for c in ctrls.values():
+                c.parar()
 
-        for replica_id in ["ctrl_1", "ctrl_2", "ctrl_3"]:
-            fname = str(tmp_path / f"{replica_id}.json")
-            ctrl = Controlador(ctrl_id=replica_id, data_file=fname)
-            ctrl._publicar_comando = lambda topico, acao, cmd_id: published_ids.append((acao, cmd_id))
+    def test_te02_byzantino_rejeitado_por_consenso_antes_da_persistencia(self, tmp_path):
+        """TE-02: 1 nó --byzantino entre 3 ativos não corrompe os bancos JSON honestos."""
+        ctrls, pares = _criar_cluster(tmp_path, byzantinos={"ctrl_2"})
+        try:
+            for cid in ("ctrl_1", "ctrl_2", "ctrl_3"):
+                ctrls[cid].iniciar_servidor_rpc()
 
-            with ctrl._lock:
-                ctrl._estado["umidade_solo"] = config.UMIDADE_MIN_PERCENT - 5.0
-                ctrl._estado["sensor_timestamp"] = sensor_ts
-                ctrl._decidir_atuacao()
+            msg_umid = SimpleNamespace(
+                topic=config.TOPIC_UMIDADE_SOLO,
+                payload=b'{"valor": 20.0}',
+            )
+            ctrls["ctrl_3"]._on_message(None, None, msg_umid)
 
-        expected_id = hashlib.md5(f"bomba_ligar_{sensor_ts}".encode("utf-8")).hexdigest()
-        assert published_ids == [("ligar", expected_id)] * 3
+            d1 = _ler_json(ctrls["ctrl_1"].data_file)
+            d3 = _ler_json(ctrls["ctrl_3"].data_file)
+            assert d1["umidade"] == 20.0
+            assert d3["umidade"] == 20.0
+            assert d1["bomba_ligada"] is True
+            assert d3["bomba_ligada"] is True
 
-    def test_id_diferente_para_acoes_diferentes(self):
-        """Ações distintas no mesmo timestamp produzem identificadores diferentes."""
-        ts = 1700000000.0
-        id_ligar = hashlib.md5(f"bomba_ligar_{ts}".encode()).hexdigest()
-        id_desligar = hashlib.md5(f"bomba_desligar_{ts}".encode()).hexdigest()
-        assert id_ligar != id_desligar
+            # Consulta via ClusterMiddleware também mascara ctrl_2 bizantino
+            mw = ClusterMiddleware(controladores=pares, timeout=0.8)
+            estado = mw.obter_estado()
+            assert estado["umidade"] == 20.0
+            assert estado["bomba_ligada"] is True
+        finally:
+            for c in ctrls.values():
+                c.parar()
 
-    def test_id_diferente_para_timestamps_diferentes(self):
-        """Mesma ação em timestamps distintos produz identificadores diferentes."""
-        id_ts1 = hashlib.md5("exaustor_ligar_1700000001.0".encode()).hexdigest()
-        id_ts2 = hashlib.md5("exaustor_ligar_1700000002.0".encode()).hexdigest()
-        assert id_ts1 != id_ts2
+    def test_te05_reconexao_replica_sincroniza_banco_json_automaticamente(self, tmp_path):
+        """TE-05: Controlador que caiu e reiniciou sincroniza data_ctrl_X.json com o cluster."""
+        ctrls, pares = _criar_cluster(tmp_path, heartbeat=0.15)
+        try:
+            ctrls["ctrl_1"].iniciar_servidor_rpc()
+            ctrls["ctrl_2"].iniciar_servidor_rpc()
 
+            # Cluster avança enquanto ctrl_3 está fora do ar
+            mw = ClusterMiddleware(controladores=pares, timeout=2.0)
+            mw.comandar_bomba(True)
+            msg_temp = SimpleNamespace(topic=config.TOPIC_TEMPERATURA, payload=b'{"valor": 29.5}')
+            ctrls["ctrl_2"]._on_message(None, None, msg_temp)
 
-class TestDecisaoExaustor:
-    def test_exaustor_ligado_quando_temp_acima_maximo(self, controlador):
-        """Liga o exaustor quando a temperatura ultrapassa TEMP_MAX_CELSIUS."""
-        _injetar_sensor(controlador, temperatura=config.TEMP_MAX_CELSIUS + 1.0)
-        _executar_decisao(controlador)
-        assert controlador._estado["exaustor_ligado"] is True
+            # ctrl_3 inicia depois com disco desatualizado/inexistente
+            ctrls["ctrl_3"].iniciar_servidor_rpc()
+            _aguardar(
+                lambda: ctrls["ctrl_3"].eh_lider()
+                and ctrls["ctrl_1"].lider_id == "ctrl_3"
+                and ctrls["ctrl_2"].lider_id == "ctrl_3"
+            )
 
-    def test_exaustor_nao_liga_quando_temp_dentro_limite(self, controlador):
-        """Mantém o exaustor desligado quando a temperatura está na faixa normal."""
-        _injetar_sensor(controlador, temperatura=config.TEMP_MAX_CELSIUS - 1.0)
-        _executar_decisao(controlador)
-        assert controlador._estado["exaustor_ligado"] is False
+            d1 = _ler_json(ctrls["ctrl_1"].data_file)
+            d2 = _ler_json(ctrls["ctrl_2"].data_file)
+            d3 = _ler_json(ctrls["ctrl_3"].data_file)
 
-    def test_exaustor_desligado_quando_temp_abaixo_minimo(self, controlador):
-        """Desliga o exaustor quando a temperatura cai abaixo de TEMP_MIN_CELSIUS."""
-        with controlador._lock:
-            controlador._estado["exaustor_ligado"] = True
-        _injetar_sensor(controlador, temperatura=config.TEMP_MIN_CELSIUS - 1.0)
-        _executar_decisao(controlador)
-        assert controlador._estado["exaustor_ligado"] is False
-
-    def test_exaustor_nao_republica_se_ja_ligado(self, controlador):
-        """Não altera nem republica comando se o exaustor já estiver ligado."""
-        with controlador._lock:
-            controlador._estado["exaustor_ligado"] = True
-        _injetar_sensor(controlador, temperatura=config.TEMP_MAX_CELSIUS + 5.0)
-        _executar_decisao(controlador)
-        assert controlador._estado["exaustor_ligado"] is True
-
-    def test_sem_temperatura_nenhuma_decisao_exaustor(self, controlador):
-        """Sem leitura de temperatura disponível, mantém o estado atual do exaustor."""
-        _injetar_sensor(controlador, temperatura=None)
-        _executar_decisao(controlador)
-        assert controlador._estado["exaustor_ligado"] is False
-
-
-class TestDecisaoBomba:
-    def test_bomba_ligada_quando_umidade_abaixo_minimo(self, controlador):
-        """Liga a bomba quando a umidade cai abaixo de UMIDADE_MIN_PERCENT."""
-        _injetar_sensor(controlador, umidade=config.UMIDADE_MIN_PERCENT - 1.0)
-        _executar_decisao(controlador)
-        assert controlador._estado["bomba_ligada"] is True
-
-    def test_bomba_nao_liga_quando_umidade_dentro_limite(self, controlador):
-        """Mantém a bomba desligada quando a umidade está na faixa normal."""
-        _injetar_sensor(controlador, umidade=config.UMIDADE_MIN_PERCENT + 5.0)
-        _executar_decisao(controlador)
-        assert controlador._estado["bomba_ligada"] is False
-
-    def test_bomba_desligada_quando_umidade_acima_maximo(self, controlador):
-        """Desliga a bomba quando a umidade ultrapassa UMIDADE_MAX_PERCENT."""
-        with controlador._lock:
-            controlador._estado["bomba_ligada"] = True
-        _injetar_sensor(controlador, umidade=config.UMIDADE_MAX_PERCENT + 1.0)
-        _executar_decisao(controlador)
-        assert controlador._estado["bomba_ligada"] is False
-
-    def test_bomba_nao_republica_se_ja_ligada(self, controlador):
-        """Não altera o estado se a bomba já estiver ligada."""
-        with controlador._lock:
-            controlador._estado["bomba_ligada"] = True
-        _injetar_sensor(controlador, umidade=config.UMIDADE_MIN_PERCENT - 10.0)
-        _executar_decisao(controlador)
-        assert controlador._estado["bomba_ligada"] is True
-
-    def test_sem_umidade_nenhuma_decisao_bomba(self, controlador):
-        """Sem leitura de umidade disponível, mantém o estado atual da bomba."""
-        _injetar_sensor(controlador, umidade=None)
-        _executar_decisao(controlador)
-        assert controlador._estado["bomba_ligada"] is False
-
-
-class TestModoByantino:
-    def test_obter_estado_retorna_dados_falsos_em_modo_byzantino(self, controlador_byzantino):
-        """Controlador em modo bizantino retorna leituras adulteradas e estados invertidos."""
-        with controlador_byzantino._lock:
-            controlador_byzantino._estado["bomba_ligada"] = False
-            controlador_byzantino._estado["exaustor_ligado"] = False
-
-        estado = controlador_byzantino.obter_estado()
-
-        assert estado["bomba_ligada"] is True
-        assert estado["exaustor_ligado"] is True
-        assert estado["temperatura"] == 999.0
-        assert estado["umidade_solo"] == -1.0
-        assert "_byzantino" not in estado
-
-    def test_comandar_bomba_byzantino_retorna_sucesso_falso(self, controlador_byzantino):
-        """Controlador bizantino retorna confirmação divergente sem alterar o estado real."""
-        result = controlador_byzantino.comandar_bomba("ligar")
-        assert result["sucesso"] is True
-        assert result["mensagem"] == "Bomba desligada com sucesso"
-        assert controlador_byzantino._estado["bomba_ligada"] is False
-
-    def test_comandar_exaustor_byzantino_retorna_sucesso_falso(self, controlador_byzantino):
-        """Controlador bizantino retorna confirmação divergente para o exaustor sem atuar."""
-        result = controlador_byzantino.comandar_exaustor("desligar")
-        assert result["sucesso"] is True
-        assert result["mensagem"] == "Exaustor ligado com sucesso"
-        assert controlador_byzantino._estado["exaustor_ligado"] is False
-
-
-class TestComandosManuais:
-    def test_comandar_bomba_ligar(self, controlador):
-        """Comando manual para ligar a bomba atualiza o estado e retorna mensagem padronizada."""
-        controlador._mqtt_client = None
-        result = controlador.comandar_bomba("ligar", "test-uuid-001")
-        assert result["sucesso"] is True
-        assert result["mensagem"] == "Bomba ligada com sucesso"
-        assert result["controlador_id"] == "ctrl_test"
-        assert controlador._estado["bomba_ligada"] is True
-
-    def test_comandar_bomba_desligar(self, controlador):
-        """Comando manual para desligar a bomba atualiza o estado interno."""
-        with controlador._lock:
-            controlador._estado["bomba_ligada"] = True
-        controlador._mqtt_client = None
-        result = controlador.comandar_bomba("desligar", "test-uuid-002")
-        assert result["sucesso"] is True
-        assert result["mensagem"] == "Bomba desligada com sucesso"
-        assert controlador._estado["bomba_ligada"] is False
-
-    def test_comandar_bomba_acao_invalida(self, controlador):
-        """Ação inválida na bomba deve retornar sucesso=False."""
-        result = controlador.comandar_bomba("LIGAR_FORCADO")
-        assert result["sucesso"] is False
-
-    def test_comandar_exaustor_ligar(self, controlador):
-        """Comando manual para ligar o exaustor atualiza o estado interno."""
-        controlador._mqtt_client = None
-        result = controlador.comandar_exaustor("ligar", "test-uuid-003")
-        assert result["sucesso"] is True
-        assert result["mensagem"] == "Exaustor ligado com sucesso"
-        assert controlador._estado["exaustor_ligado"] is True
-
-    def test_comandar_exaustor_acao_invalida(self, controlador):
-        """Ação inválida no exaustor deve retornar sucesso=False."""
-        result = controlador.comandar_exaustor("TOGGLE")
-        assert result["sucesso"] is False
-
-    def test_ping_retorna_pong(self, controlador):
-        """O método ping() deve responder 'pong:<id>'."""
-        assert controlador.ping() == "pong:ctrl_test"
-
-
-class TestPersistencia:
-    def test_salvar_e_recarregar_estado(self, tmp_data_file):
-        """O estado persistido em JSON deve ser recarregado por uma nova instância."""
-        ctrl1 = Controlador(ctrl_id="ctrl_test", data_file=tmp_data_file)
-        ctrl1._mqtt_client = None
-        ctrl1.comandar_bomba("ligar", "persist-test-id")
-
-        ctrl2 = Controlador(ctrl_id="ctrl_test", data_file=tmp_data_file)
-        assert ctrl2._estado["bomba_ligada"] is True
+            assert d3["bomba_ligada"] is True
+            assert d3["temperatura"] == 29.5
+            assert d1["bomba_ligada"] == d2["bomba_ligada"] == d3["bomba_ligada"] is True
+            assert d1["temperatura"] == d2["temperatura"] == d3["temperatura"] == 29.5
+            assert ctrls["ctrl_3"].eh_lider() is True
+        finally:
+            for c in ctrls.values():
+                c.parar()

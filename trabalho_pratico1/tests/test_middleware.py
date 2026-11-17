@@ -1,360 +1,254 @@
 """
-test_middleware.py — Testes unitários do motor de votação do Middleware.
+test_middleware.py — Testes unitários da camada lógica ClusterMiddleware.
 
-Valida a apuração de quórum (3/3 e 2/3), detecção de divergência total,
-mascaramento de falhas bizantinas em leituras e comandos, compartilhamento de
-UUID para deduplicação e verificação de saúde dos controladores.
+Valida comunicação direta Cliente <-> Controladores (sem porta :9000),
+descoberta e cache de líder, failover automático e quórum dinâmico
+(3/3, 2/3 bizantino, 2/2 concordante, 1/1 degradado e ErroQuorum).
 """
 
+import socket
+import time
 from unittest.mock import MagicMock, patch
+import xmlrpc.client
 import pytest
 
-from estufa.middleware import Middleware, ErroQuorum
+from estufa.middleware import ClusterMiddleware, ErroQuorum
 
 
-def _estado_honesto(bomba=False, exaustor=False, temp=25.0, umidade=50.0, ctrl_id="ctrl_x"):
-    """Retorna um dicionário de estado representativo de uma réplica honesta."""
+def _estado(temp=25.0, umidade=50.0, bomba=False, exaustor=False, lider="ctrl_3"):
     return {
         "temperatura": temp,
-        "umidade_solo": umidade,
+        "umidade": umidade,
         "bomba_ligada": bomba,
         "exaustor_ligado": exaustor,
-        "ultima_atualizacao": 1700000000.0,
-        "sensor_timestamp": 1700000000.0,
-        "controlador_id": ctrl_id,
+        "ultima_atualizacao": "2026-11-17T12:00:00+00:00",
+        "lider_id": lider,
     }
 
 
-def _resposta_comando(sucesso=True, mensagem="Bomba ligada com sucesso", ctrl_id="ctrl_1"):
-    return {"sucesso": sucesso, "mensagem": mensagem, "controlador_id": ctrl_id}
-
-
 CONTROLADORES_TESTE = [
-    {"id": "ctrl_1", "host": "localhost", "port": 18001, "data_file": "data_ctrl_1.json"},
-    {"id": "ctrl_2", "host": "localhost", "port": 18002, "data_file": "data_ctrl_2.json"},
-    {"id": "ctrl_3", "host": "localhost", "port": 18003, "data_file": "data_ctrl_3.json"},
+    ("localhost", 18001),
+    ("localhost", 18002),
+    ("localhost", 18003),
 ]
 
 
 @pytest.fixture
-def middleware():
-    """Instância do Middleware configurada com os 3 controladores de teste."""
-    return Middleware(controladores=CONTROLADORES_TESTE, timeout=2)
+def mw():
+    return ClusterMiddleware(controladores=CONTROLADORES_TESTE, timeout=0.5)
 
 
-class TestObterEstadoQuorum:
-    def test_quorum_3_de_3_concordantes(self, middleware):
-        """3/3 réplicas concordantes (com controlador_id distintos) atingem quórum."""
+class TestComunicacaoDiretaEFailover:
+    """TP-03 & TE-01: Chamadas diretas aos controladores e failover transparente."""
+
+    def test_tp03_obter_estado_direto_sem_intermediario(self, mw):
+        """Consulta diretamente os 3 controladores e consolida estado oficial."""
         def proxy_factory(ctrl):
             m = MagicMock()
-            m.obter_estado.return_value = _estado_honesto(
-                bomba=False, exaustor=False, ctrl_id=ctrl["id"]
-            )
-            return m
-
-        with patch.object(middleware, "_criar_proxy", side_effect=proxy_factory):
-            result = middleware.obter_estado()
-
-        assert result["bomba_ligada"] is False
-        assert result["exaustor_ligado"] is False
-        assert result["temperatura"] == 25.0
-
-    def test_quorum_2_de_3_um_crashado(self, middleware):
-        """2/3 réplicas respondem e 1 falha por conexão recusada: quórum mantido."""
-        crash_error = ConnectionRefusedError("Controlador offline")
-        call_count = [0]
-
-        def proxy_factory(ctrl):
-            m = MagicMock()
-            call_count[0] += 1
-            if call_count[0] == 3:
-                m.obter_estado.side_effect = crash_error
-            else:
-                m.obter_estado.return_value = _estado_honesto(
-                    bomba=True, exaustor=False, ctrl_id=ctrl["id"]
-                )
-            return m
-
-        with patch.object(middleware, "_criar_proxy", side_effect=proxy_factory):
-            result = middleware.obter_estado()
-
-        assert result["bomba_ligada"] is True
-
-    def test_quorum_falha_todos_crashados(self, middleware):
-        """0/3 réplicas disponíveis deve lançar ErroQuorum."""
-        mock_proxy = MagicMock()
-        mock_proxy.obter_estado.side_effect = ConnectionRefusedError("Todos offline")
-
-        with patch.object(middleware, "_criar_proxy", return_value=mock_proxy):
-            with pytest.raises(ErroQuorum):
-                middleware.obter_estado()
-
-    def test_quorum_falha_respostas_todas_divergentes(self, middleware):
-        """3 réplicas com estados mutuamente divergentes não atingem quórum."""
-        states = [
-            _estado_honesto(bomba=False, exaustor=False, temp=25.0, ctrl_id="ctrl_1"),
-            _estado_honesto(bomba=True, exaustor=False, temp=26.0, ctrl_id="ctrl_2"),
-            _estado_honesto(bomba=False, exaustor=True, temp=27.0, ctrl_id="ctrl_3"),
-        ]
-        call_count = [0]
-
-        def proxy_factory(ctrl):
-            m = MagicMock()
-            idx = call_count[0] % len(states)
-            call_count[0] += 1
-            m.obter_estado.return_value = states[idx]
-            return m
-
-        with patch.object(middleware, "_criar_proxy", side_effect=proxy_factory):
-            with pytest.raises(ErroQuorum):
-                middleware.obter_estado()
-
-
-class TestToleranciaByantina:
-    def test_1_byzantino_2_honestos_retorna_estado_honesto(self, middleware):
-        """1 réplica bizantina + 2 honestas: votação por maioria retorna estado honesto."""
-        byzantine_state = {
-            "temperatura": 999.0,
-            "umidade_solo": -1.0,
-            "bomba_ligada": True,
-            "exaustor_ligado": True,
-            "ultima_atualizacao": 1700000000.0,
-            "sensor_timestamp": 1700000000.0,
-            "controlador_id": "ctrl_2",
-        }
-        call_count = [0]
-
-        def proxy_factory(ctrl):
-            m = MagicMock()
-            call_count[0] += 1
-            if call_count[0] == 2:
-                m.obter_estado.return_value = byzantine_state
-            else:
-                m.obter_estado.return_value = _estado_honesto(
-                    bomba=False, exaustor=False, temp=25.0, ctrl_id=ctrl["id"]
-                )
-            return m
-
-        with patch.object(middleware, "_criar_proxy", side_effect=proxy_factory):
-            result = middleware.obter_estado()
-
-        assert result["bomba_ligada"] is False
-        assert result["exaustor_ligado"] is False
-        assert result["temperatura"] == 25.0
-
-    def test_2_byzantinos_1_honesto_levanta_erro_quorum(self, middleware):
-        """Com 2 réplicas bizantinas idênticas (f=2 em N=3), o limite f=1 é ultrapassado."""
-        byzantine_state = {
-            "temperatura": 999.0,
-            "umidade_solo": -1.0,
-            "bomba_ligada": True,
-            "exaustor_ligado": True,
-            "ultima_atualizacao": 1700000000.0,
-            "sensor_timestamp": 1700000000.0,
-            "controlador_id": "ctrl_byz",
-        }
-        call_count = [0]
-
-        def proxy_factory(ctrl):
-            m = MagicMock()
-            call_count[0] += 1
-            if call_count[0] <= 2:
-                m.obter_estado.return_value = byzantine_state
-            else:
-                m.obter_estado.return_value = _estado_honesto(
-                    bomba=False, exaustor=False, ctrl_id=ctrl["id"]
-                )
-            return m
-
-        with patch.object(middleware, "_criar_proxy", side_effect=proxy_factory):
-            result = middleware.obter_estado()
-            assert result["bomba_ligada"] is True
-
-
-class TestComandoBomba:
-    def test_comandar_bomba_ligar_com_quorum(self, middleware):
-        """Comando da bomba atinge quórum quando cada réplica retorna seu próprio controlador_id."""
-        def proxy_factory(ctrl):
-            m = MagicMock()
-            m.comandar_bomba.return_value = _resposta_comando(
-                sucesso=True,
-                mensagem="Bomba ligada com sucesso",
-                ctrl_id=ctrl["id"],
-            )
-            return m
-
-        with patch.object(middleware, "_criar_proxy", side_effect=proxy_factory):
-            result = middleware.comandar_bomba("ligar")
-
-        assert result["sucesso"] is True
-        assert result["mensagem"] == "Bomba ligada com sucesso"
-
-    def test_comandar_bomba_com_1_replica_bizantina(self, middleware):
-        """Mesmo com 1 réplica bizantina retornando mensagem invertida, as 2 honestas formam quórum."""
-        def proxy_factory(ctrl):
-            m = MagicMock()
-            if ctrl["id"] == "ctrl_2":
-                m.comandar_bomba.return_value = _resposta_comando(
-                    sucesso=True,
-                    mensagem="Bomba desligada com sucesso",
-                    ctrl_id="ctrl_2",
-                )
-            else:
-                m.comandar_bomba.return_value = _resposta_comando(
-                    sucesso=True,
-                    mensagem="Bomba ligada com sucesso",
-                    ctrl_id=ctrl["id"],
-                )
-            return m
-
-        with patch.object(middleware, "_criar_proxy", side_effect=proxy_factory):
-            result = middleware.comandar_bomba("ligar")
-
-        assert result["sucesso"] is True
-        assert result["mensagem"] == "Bomba ligada com sucesso"
-
-    def test_comandar_bomba_gera_uuid_diferente_a_cada_chamada(self, middleware):
-        """Cada invocação de comandar_bomba deve gerar um UUID distinto."""
-        cmd_response = _resposta_comando()
-        mock_proxy = MagicMock()
-        captured_ids = []
-
-        def capture_args(*args, **kwargs):
-            if len(args) > 1:
-                captured_ids.append(args[1])
-            return cmd_response
-
-        mock_proxy.comandar_bomba.side_effect = capture_args
-
-        with patch.object(middleware, "_criar_proxy", return_value=mock_proxy):
-            middleware.comandar_bomba("ligar")
-            middleware.comandar_bomba("ligar")
-
-        assert len(captured_ids) == 6
-        assert len(set(captured_ids[:3])) == 1
-        assert len(set(captured_ids[3:])) == 1
-        assert captured_ids[0] != captured_ids[3]
-
-    def test_comandar_bomba_falha_sem_quorum(self, middleware):
-        """Falha de comunicação com os controladores ao enviar comando deve lançar ErroQuorum."""
-        mock_proxy = MagicMock()
-        mock_proxy.comandar_bomba.side_effect = ConnectionRefusedError("offline")
-
-        with patch.object(middleware, "_criar_proxy", return_value=mock_proxy):
-            with pytest.raises(ErroQuorum):
-                middleware.comandar_bomba("ligar")
-
-
-class TestComandoExaustor:
-    def test_comandar_exaustor_desligar_com_quorum(self, middleware):
-        """Comando de desligamento do exaustor atinge quórum entre réplicas distintas."""
-        def proxy_factory(ctrl):
-            m = MagicMock()
-            m.comandar_exaustor.return_value = _resposta_comando(
-                sucesso=True,
-                mensagem="Exaustor desligado com sucesso",
-                ctrl_id=ctrl["id"],
-            )
-            return m
-
-        with patch.object(middleware, "_criar_proxy", side_effect=proxy_factory):
-            result = middleware.comandar_exaustor("desligar")
-
-        assert result["sucesso"] is True
-        assert result["mensagem"] == "Exaustor desligado com sucesso"
-
-    def test_comandar_exaustor_uuid_compartilhado_entre_controladores(self, middleware):
-        """Os 3 controladores devem receber exatamente o mesmo comando_id na mesma chamada."""
-        cmd_response = _resposta_comando(mensagem="Exaustor ligado com sucesso")
-        received_ids = []
-
-        def capture_args_factory():
-            m = MagicMock()
-
-            def capture(*args, **kwargs):
-                if len(args) > 1:
-                    received_ids.append(args[1])
-                return cmd_response
-
-            m.comandar_exaustor.side_effect = capture
-            return m
-
-        with patch.object(middleware, "_criar_proxy", side_effect=lambda ctrl: capture_args_factory()):
-            middleware.comandar_exaustor("ligar")
-
-        assert len(received_ids) == 3
-        assert len(set(received_ids)) == 1
-
-
-class TestVerificarSaude:
-    def test_todos_online_retorna_ok(self, middleware):
-        """Quando todas as réplicas respondem ao ping, o status de todas é 'ok'."""
-        mock_proxy = MagicMock()
-        mock_proxy.ping.return_value = "pong:ctrl_1"
-
-        with patch.object(middleware, "_criar_proxy", return_value=mock_proxy):
-            saude = middleware.verificar_saude()
-
-        for ctrl_id, status in saude.items():
-            assert status == "ok"
-
-    def test_um_offline_retorna_offline_status(self, middleware):
-        """Quando 1 réplica está inacessível, apenas ela recebe status iniciado por 'OFFLINE'."""
-        call_count = [0]
-
-        def proxy_factory(ctrl):
-            m = MagicMock()
-            call_count[0] += 1
-            if call_count[0] == 2:
-                m.ping.side_effect = ConnectionRefusedError("offline")
-            else:
-                m.ping.return_value = f"pong:{ctrl['id']}"
-            return m
-
-        with patch.object(middleware, "_criar_proxy", side_effect=proxy_factory):
-            saude = middleware.verificar_saude()
-
-        offline_statuses = [s for s in saude.values() if s.startswith("OFFLINE")]
-        assert len(offline_statuses) == 1
-
-    def test_todos_offline_retorna_todos_com_status_offline(self, middleware):
-        """Quando todas as réplicas falham, todas aparecem como 'OFFLINE'."""
-        mock_proxy = MagicMock()
-        mock_proxy.ping.side_effect = ConnectionRefusedError("all offline")
-
-        with patch.object(middleware, "_criar_proxy", return_value=mock_proxy):
-            saude = middleware.verificar_saude()
-
-        for ctrl_id, status in saude.items():
-            assert status.startswith("OFFLINE")
-
-    def test_quorum_2_de_3_um_travado_timeout(self):
-        """Quando 1 réplica bloqueia além do timeout (ex: SYN retry no Windows), o quórum 2/3 ainda vence."""
-        import time
-        mw = Middleware(timeout=0.2)
-
-        def proxy_factory(ctrl):
-            m = MagicMock()
-            if ctrl["id"] == "ctrl_3":
-                def lento():
-                    time.sleep(2.0)
-                    return {}
-                m.obter_estado.side_effect = lento
-            else:
-                m.obter_estado.return_value = {
-                    "temperatura": 25.0,
-                    "umidade_solo": 50.0,
-                    "bomba_ligada": False,
-                    "exaustor_ligado": False,
-                    "sensor_timestamp": 100.0,
-                    "ultima_atualizacao": 100.0,
-                    "controlador_id": ctrl["id"],
-                }
+            m.obter_estado.return_value = _estado(temp=26.5, umidade=48.0, bomba=True)
             return m
 
         with patch.object(mw, "_criar_proxy", side_effect=proxy_factory):
             estado = mw.obter_estado()
 
-        assert estado["temperatura"] == 25.0
-        assert estado["bomba_ligada"] is False
+        assert estado["temperatura"] == 26.5
+        assert estado["umidade"] == 48.0
+        assert estado["bomba_ligada"] is True
+        assert estado["lider_id"] == "ctrl_3"
 
+    def test_tp03_comandar_bomba_e_exaustor_validacao_booleana(self, mw):
+        """Comandos diretos validam argumento booleano e retornam estado atualizado."""
+        mock_proxy = MagicMock()
+        mock_proxy.comandar_bomba.return_value = {
+            **_estado(bomba=True, lider="ctrl_3"),
+            "sucesso": True,
+            "mensagem": "Bomba ligada com sucesso",
+        }
+        mock_proxy.comandar_exaustor.return_value = {
+            **_estado(exaustor=False, lider="ctrl_3"),
+            "sucesso": True,
+            "mensagem": "Exaustor desligado com sucesso",
+        }
+
+        with patch.object(mw, "_criar_proxy", return_value=mock_proxy):
+            resp_bomba = mw.comandar_bomba(True)
+            resp_exaustor = mw.comandar_exaustor(False)
+
+        assert resp_bomba["bomba_ligada"] is True
+        assert resp_exaustor["exaustor_ligado"] is False
+
+        with pytest.raises(ValueError):
+            mw.comandar_bomba("ligar")
+        with pytest.raises(ValueError):
+            mw.comandar_exaustor(1)
+
+    def test_te01_failover_automatico_quando_lider_cai_ou_da_timeout(self, mw):
+        """Quando ctrl_3 (rank maior) recusa conexão ou dá timeout, migra para ctrl_2."""
+        chamadas = []
+
+        def proxy_factory(ctrl):
+            chamadas.append(ctrl["id"])
+            m = MagicMock()
+            if ctrl["id"] == "ctrl_3":
+                m.comandar_bomba.side_effect = ConnectionRefusedError("ctrl_3 fechado")
+            elif ctrl["id"] == "ctrl_2":
+                m.comandar_bomba.return_value = {
+                    **_estado(bomba=True, lider="ctrl_2"),
+                    "sucesso": True,
+                    "mensagem": "Bomba ligada com sucesso",
+                }
+            return m
+
+        with patch.object(mw, "_criar_proxy", side_effect=proxy_factory):
+            resp = mw.comandar_bomba(True)
+
+        assert chamadas[:2] == ["ctrl_3", "ctrl_2"]
+        assert resp["lider_id"] == "ctrl_2"
+        assert mw._lider_atual["id"] == "ctrl_2"
+
+    def test_te01_failover_em_socket_timeout(self, mw):
+        """Timeout de socket em ctrl_3 também dispara failover transparente para ctrl_2."""
+        def proxy_factory(ctrl):
+            m = MagicMock()
+            if ctrl["id"] == "ctrl_3":
+                m.comandar_exaustor.side_effect = socket.timeout("timeout")
+            else:
+                m.comandar_exaustor.return_value = {
+                    **_estado(exaustor=True, lider="ctrl_2"),
+                    "sucesso": True,
+                    "mensagem": "Exaustor ligado com sucesso",
+                }
+            return m
+
+        with patch.object(mw, "_criar_proxy", side_effect=proxy_factory):
+            resp = mw.comandar_exaustor(True)
+
+        assert resp["exaustor_ligado"] is True
+        assert resp["lider_id"] == "ctrl_2"
+
+    def test_verificar_saude_identifica_lider_e_offline(self, mw):
+        """verificar_saude reporta quantidade de ativos, líder eleito e detalhes por nó."""
+        def proxy_factory(ctrl):
+            m = MagicMock()
+            if ctrl["id"] == "ctrl_3":
+                m.ping.side_effect = ConnectionRefusedError("offline")
+            else:
+                m.ping.return_value = {
+                    "status": "ok",
+                    "id": ctrl["id"],
+                    "rank": ctrl["rank"],
+                    "lider_id": "ctrl_2",
+                }
+            return m
+
+        with patch.object(mw, "_criar_proxy", side_effect=proxy_factory):
+            saude = mw.verificar_saude()
+
+        assert saude["ativos"] == 2
+        assert saude["total"] == 3
+        assert saude["lider_id"] == "ctrl_2"
+        assert saude["detalhes"]["ctrl_2"] == "ok (LÍDER)"
+        assert saude["detalhes"]["ctrl_1"] == "ok (seguidor)"
+        assert saude["detalhes"]["ctrl_3"].startswith("OFFLINE")
+
+
+class TestConsensoEQuorumDinamico:
+    """TE-02, TE-03 & TE-04: Quórum dinâmico, mascaramento bizantino e ErroQuorum."""
+
+    def test_te02_1_byzantino_entre_3_ativos_mascarado(self, mw):
+        """Com 3 réplicas ativas e 1 bizantina, maioria 2/3 vence e descarta fraude."""
+        def proxy_factory(ctrl):
+            m = MagicMock()
+            if ctrl["id"] == "ctrl_2":
+                m.obter_estado.return_value = _estado(
+                    temp=999.9, umidade=-50.0, bomba=True, exaustor=True, lider="ctrl_3"
+                )
+            else:
+                m.obter_estado.return_value = _estado(
+                    temp=24.0, umidade=55.0, bomba=False, exaustor=False, lider="ctrl_3"
+                )
+            return m
+
+        with patch.object(mw, "_criar_proxy", side_effect=proxy_factory):
+            oficial = mw.obter_estado()
+
+        assert oficial["temperatura"] == 24.0
+        assert oficial["umidade"] == 55.0
+        assert oficial["bomba_ligada"] is False
+
+    def test_te03_quorum_2_ativos_concordantes_e_1_degradado(self, mw):
+        """Funciona com 2/2 concordantes e em modo degradado 1/1 quando 2 caem."""
+        dois_ativos = [
+            _estado(temp=22.0, umidade=60.0, bomba=False, lider="ctrl_2"),
+            _estado(temp=22.0, umidade=60.0, bomba=False, lider="ctrl_2"),
+        ]
+        res_2 = ClusterMiddleware.calcular_consenso(dois_ativos)
+        assert res_2["temperatura"] == 22.0
+
+        um_ativo = [_estado(temp=31.0, umidade=35.0, exaustor=True, lider="ctrl_1")]
+        res_1 = ClusterMiddleware.calcular_consenso(um_ativo)
+        assert res_1["temperatura"] == 31.0
+        assert res_1["exaustor_ligado"] is True
+
+    def test_te03_quorum_mantido_quando_uma_replica_trava_timeout(self):
+        """Se 1 réplica trava além do timeout, as 2 restantes ainda fecham consenso."""
+        mw_rapido = ClusterMiddleware(controladores=CONTROLADORES_TESTE, timeout=0.2)
+
+        def proxy_factory(ctrl):
+            m = MagicMock()
+            if ctrl["id"] == "ctrl_3":
+                def lento():
+                    time.sleep(1.5)
+                    return _estado(temp=10.0)
+                m.obter_estado.side_effect = lento
+            else:
+                m.obter_estado.return_value = _estado(temp=27.0, umidade=45.0, lider="ctrl_2")
+            return m
+
+        with patch.object(mw_rapido, "_criar_proxy", side_effect=proxy_factory):
+            estado = mw_rapido.obter_estado()
+
+        assert estado["temperatura"] == 27.0
+
+    def test_te04_erro_quorum_em_empate_2_ativos_divergentes(self):
+        """Com 2 ativos em conflito (ex: 1 honesto vs 1 bizantino), levanta ErroQuorum."""
+        conflito = [
+            _estado(temp=25.0, umidade=50.0, bomba=False),
+            _estado(temp=999.9, umidade=-50.0, bomba=True),
+        ]
+        with pytest.raises(ErroQuorum):
+            ClusterMiddleware.calcular_consenso(conflito)
+
+    def test_te04_erro_quorum_em_3_divergentes_ou_0_ativos(self, mw):
+        """3 respostas totalmente distintas ou 0 ativos devem levantar ErroQuorum."""
+        tres_distintos = [
+            _estado(temp=20.0),
+            _estado(temp=25.0),
+            _estado(temp=30.0),
+        ]
+        with pytest.raises(ErroQuorum):
+            ClusterMiddleware.calcular_consenso(tres_distintos)
+
+        with pytest.raises(ErroQuorum):
+            ClusterMiddleware.calcular_consenso([])
+
+        def offline_factory(ctrl):
+            m = MagicMock()
+            m.obter_estado.side_effect = ConnectionRefusedError("offline")
+            m.comandar_bomba.side_effect = ConnectionRefusedError("offline")
+            return m
+
+        with patch.object(mw, "_criar_proxy", side_effect=offline_factory):
+            with pytest.raises(ErroQuorum):
+                mw.obter_estado()
+            with pytest.raises(ErroQuorum):
+                mw.comandar_bomba(True)
+
+    def test_fault_xmlrpc_de_quorum_propagada_como_erro_quorum(self, mw):
+        """Fault remota contendo ERRO_QUORUM deve ser convertida imediatamente para ErroQuorum."""
+        mock_proxy = MagicMock()
+        mock_proxy.comandar_bomba.side_effect = xmlrpc.client.Fault(1, "ERRO_QUORUM: conflito")
+
+        with patch.object(mw, "_criar_proxy", return_value=mock_proxy):
+            with pytest.raises(ErroQuorum):
+                mw.comandar_bomba(True)
