@@ -1,5 +1,5 @@
 # Relatório Técnico — Trabalho Prático 1: Sistemas Distribuídos
-## Controle Automatizado de Estufa Agrícola com Middleware Embarcado, Eleição Bully e Consenso Replicado
+## Controle Automatizado de Estufa Agrícola com Middleware Distribuído, Eleição Bully e Consenso Replicado
 
 **Disciplina:** Sistemas Distribuídos  
 **Tema:** Controle Automatizado de Estufa Agrícola  
@@ -8,21 +8,21 @@
 
 ---
 
-## 1. Introdução e Motivação
+## 1. Introdução e Arquitetura
 
 Este trabalho apresenta a implementação de um sistema distribuído tolerante a falhas para monitoramento e controle ambiental de uma estufa agrícola. Leituras contínuas de temperatura e umidade do solo são publicadas via MQTT para um cluster de 3 controladores de processo que elegem dinamicamente um líder, validam o estado oficial por consenso antes da persistência nos bancos locais replicados (`data_ctrl_1..3.json`) e acionam bomba de irrigação e exaustor em malha fechada.
 
-### 1.1 Adequação à Arquitetura do Enunciado
+### 1.1 Organização da Arquitetura Distribuída
 
-Seguindo fielmente a Figura 1 do enunciado ([Trabalho Prático 1 - SD.pdf](../Trabalho%20Prático%201%20-%20SD.pdf)), o **Middleware** não constitui um servidor intermediário externo (ponto único de falha), mas sim a camada lógica distribuída composta pelos próprios controladores e pelo módulo `ClusterMiddleware` embarcado no cliente e nas réplicas:
+A arquitetura é estruturada em três camadas integradas:
 
 - **Comunicação indireta (MQTT QoS 1):** Sensor, controladores e atuador interagem por publicação e assinatura no broker MQTT (`127.0.0.1:1883`).
-- **Comunicação direta baseada em objetos (XML-RPC):** O cliente invoca métodos diretamente nos controladores ativos (`127.0.0.1:8001..8003`) com descoberta de líder e failover automático.
-- **Coordenação autônoma P2P:** Os controladores comunicam-se diretamente entre si para detecção de falhas por heartbeat, eleição de líder (Algoritmo Bully), votação de consenso e replicação síncrona de estado (`commit_estado`).
+- **Camada Middleware (XML-RPC Direto e P2P):** Composta pelos 3 controladores (`127.0.0.1:8001..8003`) e pelo módulo `ClusterMiddleware`, permitindo invocação direta pelo cliente com descoberta de líder e failover automático.
+- **Coordenação autônoma entre réplicas:** Os controladores comunicam-se via XML-RPC P2P para detecção de falhas por heartbeat, eleição de líder (Algoritmo Bully), votação de consenso e replicação síncrona de estado (`commit_estado`).
 
 ---
 
-## 2. Arquitetura e Componentes (7 Processos)
+## 2. Componentes do Sistema (7 Processos)
 
 ```text
 [Cliente CLI] <--- XML-RPC Direto (Failover) ---> +---------------------------------------+
@@ -39,7 +39,7 @@ Seguindo fielmente a Figura 1 do enunciado ([Trabalho Prático 1 - SD.pdf](../Tr
 
 | Componente | Módulo | Porta | Responsabilidade |
 |---|---|---|---|
-| **Broker MQTT** | `estufa/broker_local.py` | `127.0.0.1:1883` | Broker MQTT v3.1.1 QoS 0/1 em Python puro (sem Docker/Admin) |
+| **Broker MQTT** | `estufa/broker_local.py` | `127.0.0.1:1883` | Broker MQTT v3.1.1 local (QoS 0 e 1) |
 | **Controladores (×3)** | `estufa/controlador.py` | `8001`, `8002`, `8003` | Eleição Bully, consenso P2P, commit JSON atômico e atuação do Líder |
 | **Camada Middleware** | `estufa/middleware.py` | embarcado | Proxy RPC com timeout explícito, failover do cliente e cálculo de quórum |
 | **Sensor Contínuo** | `estufa/sensor.py` | — | Simulação em malha fechada reativa ao status dos atuadores |
@@ -68,7 +68,7 @@ Para impedir divergência entre `data_ctrl_1.json`, `data_ctrl_2.json` e `data_c
    - **3 ativos:** exige maioria ($\ge 2/3$), mascarando até $f = 1$ controlador em falha bizantina (`--byzantino`).
    - **2 ativos:** exige concordância ($2/2$); qualquer divergência (`1 vs 1`) dispara `ErroQuorum` e aborta a gravação.
    - **1 ativo:** modo degradado ($1/1$), mantendo a disponibilidade da estufa mesmo após duas quedas consecutivas.
-3. **Commit atômico e publicação única:** Definido o estado oficial, o Líder executa `commit_estado` síncrono em si e nos seguidores alcançáveis (usando escrita em arquivo temporário + `os.replace`) e **somente o Líder** publica o comando no tópico MQTT do atuador — eliminando a necessidade de cache LRU de deduplicação no atuador.
+3. **Commit atômico e publicação única:** Definido o estado oficial, o Líder executa `commit_estado` síncrono em si e nos seguidores alcançáveis (usando escrita em arquivo temporário + `os.replace`) e **somente o Líder** publica o comando no tópico MQTT do atuador.
 4. **Ressincronização ao reconectar (`_sincronizar_com_cluster`):** Ao subir novamente após queda, o controlador consulta os pares ativos, atualiza seu banco JSON com o estado oficial do cluster (priorizando consenso ou o líder ativo) e só então retoma sua posição na eleição Bully.
 
 ---
@@ -96,11 +96,11 @@ Ao iniciar um controlador com `python -m estufa.controlador 2 --byzantino`, ele 
 
 A suíte automatizada cobre testes unitários, de integração em portas locais e End-to-End com subprocessos reais:
 
-- `tests/` (`34` testes via `pytest`): valida sensor em malha fechada, atuador unificado, broker MQTT local, camada `ClusterMiddleware`, eleição Bully, consenso, failover `3 -> 2 -> 1`, mascaramento bizantino e ressincronização de réplica.
-- `scripts/validate_e2e.py`: sobe os processos reais em `127.0.0.1` e valida todas as 6 etapas da arquitetura em menos de 45 segundos, limpando os arquivos JSON temporários ao final.
+- `tests/` (`34` testes via `pytest`): valida sensor em malha fechada, atuador, broker MQTT local, camada `ClusterMiddleware`, eleição Bully, consenso, failover `3 -> 2 -> 1`, mascaramento bizantino e ressincronização de réplica.
+- `scripts/validate_e2e.py`: sobe os processos reais em `127.0.0.1` e valida todas as 6 etapas da arquitetura, limpando os arquivos JSON temporários ao final.
 
 ---
 
 ## 8. Conclusão
 
-A eliminação do servidor intermediário `:9000`, somada à eleição Bully, à validação por consenso com quórum dinâmico antes da persistência e à ressincronização automática na reconexão, alinha integralmente o sistema ao modelo distribuído proposto no enunciado, garantindo disponibilidade contínua e consistência entre as réplicas diante de quedas sequenciais e falhas bizantinas.
+A combinação da eleição de líder via algoritmo Bully, da validação por consenso com quórum dinâmico antes da persistência e da ressincronização automática na reconexão garante disponibilidade contínua e consistência entre as réplicas diante de quedas sequenciais e falhas bizantinas.

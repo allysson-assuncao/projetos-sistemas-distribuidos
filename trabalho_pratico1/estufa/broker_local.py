@@ -1,8 +1,8 @@
 """
-broker_local.py — Broker MQTT v3.1.1 leve em Python puro.
+broker_local.py — Broker MQTT v3.1.1 local em Python.
 
-Permite executar toda a camada MQTT no laboratório (Windows 11 sem Docker e
-sem permissões de Administrador) usando apenas a biblioteca padrão do Python.
+Implementa o servidor TCP MQTT utilizado para a comunicação pub/sub entre
+sensores, controladores e atuadores usando a biblioteca padrão do Python.
 Suporta CONNECT/CONNACK, SUBSCRIBE/SUBACK, PUBLISH/PUBACK (QoS 0 e 1),
 PINGREQ/PINGRESP e DISCONNECT em localhost (127.0.0.1).
 """

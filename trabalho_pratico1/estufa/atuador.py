@@ -1,9 +1,9 @@
 """
 atuador.py — Processo Atuador do sistema da estufa agrícola.
 
-Assina os tópicos de comando da bomba e do exaustor no broker MQTT.
-Como apenas o Controlador Líder publica comandos após o consenso do cluster,
-não há necessidade de cache LRU de deduplicação no atuador.
+Assina os tópicos de comando da bomba e do exaustor no broker MQTT,
+atualiza o estado físico dos equipamentos e publica confirmação de status
+para fechar a malha de controle com o sensor.
 
 Uso:
     python -m estufa.atuador

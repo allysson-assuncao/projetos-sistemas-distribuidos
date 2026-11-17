@@ -42,7 +42,7 @@ $Comando
     Start-Process powershell.exe -ArgumentList "-NoExit", "-EncodedCommand", $encoded -WindowStyle Normal
 }
 
-Write-Host "Iniciando Estufa Agrícola Distribuída (Windows 11 sem Docker/Admin)..." -ForegroundColor Green
+Write-Host "Iniciando Estufa Agrícola Distribuída..." -ForegroundColor Green
 Write-Host "Python: $PYTHON" -ForegroundColor Gray
 
 # 1. Broker MQTT local (:1883)

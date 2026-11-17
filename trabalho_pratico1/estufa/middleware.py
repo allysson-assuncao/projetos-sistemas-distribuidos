@@ -1,9 +1,9 @@
 """
 middleware.py — Camada lógica distribuída de comunicação RPC, failover e consenso.
 
-Não opera mais como um processo intermediário separado (:9000): este módulo é
-embarcado diretamente pelo Cliente (para descoberta de líder, failover e leitura
-com consenso) e pelos Controladores (para chamadas P2P e votação de quórum).
+Módulo utilizado pelo Cliente (para descoberta de líder, failover automático
+e leitura por consenso) e pelos Controladores (para comunicação P2P, eleição
+e apuração de quórum entre as réplicas do cluster).
 """
 
 import collections

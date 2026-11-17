@@ -1,12 +1,12 @@
 # Trabalho Prático 1 — Controle Automatizado de Estufa Agrícola Distribuída
 
-Sistema distribuído com **comunicação direta Cliente ↔ Controladores via XML-RPC**, **eleição dinâmica de líder (Algoritmo Bully)**, **consenso com persistência replicada síncrona (`data_ctrl_1..3.json`)** e **malha fechada IoT via MQTT v3.1.1 QoS 1**, projetado para operar nativamente no **Windows 11 sem Docker e sem permissões de Administrador** (e com suporte opcional a Docker/Linux).
+Sistema distribuído com **comunicação direta Cliente ↔ Controladores via XML-RPC**, **eleição dinâmica de líder (Algoritmo Bully)**, **consenso com persistência replicada síncrona (`data_ctrl_1..3.json`)** e **malha fechada IoT via MQTT v3.1.1 QoS 1**.
 
 ---
 
-## 1. Arquitetura do Sistema (Alinhada à Figura 1 do Enunciado)
+## 1. Arquitetura do Sistema
 
-Na arquitetura original do enunciado ([Trabalho Prático 1 - SD.pdf](./Trabalho%20Prático%201%20-%20SD.pdf)), o **MIDDLEWARE** não é um processo intermediário externo (que criaria ponto único de falha), mas sim a **camada lógica distribuída que engloba os próprios Controladores de Processo** e seus mecanismos de invocação direta, sincronização P2P, tolerância a falhas e replicação de armazenamento.
+O **Middleware** representa a camada lógica distribuída formada pelos 3 Controladores de Processo (`8001..8003`) e pelo módulo `ClusterMiddleware`, responsável pela comunicação RPC com o cliente, coordenação P2P, eleição de líder, votação por quórum e replicação nos arquivos `data_ctrl_1..3.json`.
 
 ```mermaid
 flowchart TD
@@ -75,7 +75,7 @@ flowchart TD
 
 | Processo | Comando Simplificado | Porta | Papel |
 |---|---|---|---|
-| **1. Broker MQTT** | `python -m estufa.broker_local` | `127.0.0.1:1883` | Broker MQTT v3.1.1 em Python puro (sem Docker/Admin) |
+| **1. Broker MQTT** | `python -m estufa.broker_local` | `127.0.0.1:1883` | Broker MQTT v3.1.1 local (QoS 0 e 1) |
 | **2. Controlador 1** | `python -m estufa.controlador 1 [--byzantino]` | `127.0.0.1:8001` | Réplica `ctrl_1` (`rank=1`), banco `data_ctrl_1.json` |
 | **3. Controlador 2** | `python -m estufa.controlador 2 [--byzantino]` | `127.0.0.1:8002` | Réplica `ctrl_2` (`rank=2`), banco `data_ctrl_2.json` |
 | **4. Controlador 3** | `python -m estufa.controlador 3 [--byzantino]` | `127.0.0.1:8003` | Réplica `ctrl_3` (`rank=3`, líder inicial), banco `data_ctrl_3.json` |
@@ -85,7 +85,7 @@ flowchart TD
 
 ---
 
-## 3. Como Executar no Laboratório (Windows 11 sem Docker / sem Admin)
+## 3. Como Executar
 
 ### Preparação do Ambiente Virtual (`.venv`)
 ```powershell
@@ -110,7 +110,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Tem
 .\.venv\Scripts\python.exe -m estufa.cliente
 ```
 
-> **Alternativa Linux (Dual Boot / Docker opcional):** Utilize `./scripts/start_all.sh [TEMP] [UMIDADE] [INTERVALO]`. Caso tenha Docker ativo, `docker compose up -d` sobe o Mosquitto (`mosquitto/mosquitto.conf`); sem Docker, o script utiliza automaticamente `estufa.broker_local`.
+> **Execução no Linux:** Utilize `./scripts/start_all.sh [TEMP] [UMIDADE] [INTERVALO]`. Caso tenha Docker ativo, `docker compose up -d` sobe o Mosquitto (`mosquitto/mosquitto.conf`); caso contrário, o script utiliza automaticamente `estufa.broker_local`.
 
 ---
 

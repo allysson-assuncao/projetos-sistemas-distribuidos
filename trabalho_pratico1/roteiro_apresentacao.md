@@ -1,6 +1,6 @@
-# Roteiro Prático de Apresentação — TP1 (Windows 11 / Laboratório)
+# Roteiro Prático de Apresentação — TP1
 
-> Guia objetivo para executar os terminais no laboratório (sem Docker e sem Admin) e demonstrar cada mecanismo exigido pelo professor ao vivo.
+> Cola rápida de execução nos terminais, localização dos trechos no código e falas para demonstrar cada mecanismo ao vivo.
 
 ---
 
@@ -19,7 +19,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1
 .\.venv\Scripts\python.exe -m estufa.cliente
 ```
 
-**Comandos individuais (caso prefira abrir ou reiniciar manualmente qualquer janela após `Ctrl+C` + `↑`):**
+**Comandos individuais (para abrir ou reiniciar manualmente com `Ctrl+C` + `↑`):**
 
 | Janela | Comando |
 |---|---|
@@ -33,45 +33,52 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_all.ps1
 
 ---
 
-## 2. Passo a Passo de Demonstração e Injeção de Falhas
+## 2. Roteiro de Demonstração e Injeção de Falhas
 
-### Passo 1 — Cluster Saudável (3/3), Eleição Inicial e Malha Fechada
-- **Ação:** Aguardar ~4s após iniciar todos os terminais; no Cliente, escolher opção `6` (Saúde) e opção `1` (Consultar estado). Abrir `data_ctrl_1.json`, `data_ctrl_2.json` e `data_ctrl_3.json`.
-- **O que demonstrar:**
-  - *Aqui podemos ver que ao iniciar o cluster, o algoritmo Bully (`realizar_eleicao`) elegeu `ctrl_3` (maior rank) como líder sem nenhum servidor intermediário na porta `9000`, e os 3 bancos JSON gravaram exatamente os mesmos valores via `commit_estado` síncrono.*
+### Passo 1 — Cluster Saudável (3/3), Eleição Inicial e Replicação
+- **Ação no terminal:** Aguardar ~4s após subir os terminais; no Cliente, usar opção `6` (Saúde) e opção `1` (Consultar estado). Mostrar `data_ctrl_1.json`, `data_ctrl_2.json` e `data_ctrl_3.json`.
+- **Onde mostrar no código:** `estufa/controlador.py` (`realizar_eleicao`, `L257–L341`; `commit_estado`, `L539–L565`).
+- **O que explicar:**
+  - *Aqui vemos que na inicialização o algoritmo Bully elegeu `ctrl_3` (maior rank) como líder do cluster e os 3 bancos JSON gravaram exatamente os mesmos valores via `commit_estado` síncrono após consenso.*
 
-### Passo 2 — Alteração de Parâmetros do Sensor em Tempo Real (Acionamento Autônomo)
-- **Ação:** Na janela do **Sensor**, pressionar `Ctrl+C`, apertar `Seta para Cima (↑)` e reiniciar com valores críticos:
+### Passo 2 — Alteração de Parâmetros do Sensor (Malha Fechada Autônoma)
+- **Ação no terminal:** Na janela do **Sensor**, dar `Ctrl+C`, apertar `Seta para Cima (↑)` e reiniciar com valores críticos:
   `.\.venv\Scripts\python.exe -u -m estufa.sensor --temp 38 --umidade 24 --intervalo 2`
-- **O que demonstrar:**
-  - *Aqui podemos ver que ao cruzar os limiares (`Temp > 35°C` e `Umidade < 30%`), apenas o Líder (`ctrl_3`) publica os comandos MQTT após o consenso, o Atuador aciona bomba e exaustor uma única vez e envia feedback em `estufa/status/*`, fazendo o Sensor inverter naturalmente a temperatura (caindo) e a umidade (subindo).*
+- **Onde mostrar no código:** `estufa/controlador.py` (`_avaliar_regras_atuacao`, `L58–L79`; `_coordenar_consenso_e_persistir`, `L578–L670`), `estufa/atuador.py` (`L42–L63`) e `estufa/sensor.py` (`L37–L103`).
+- **O que explicar:**
+  - *Ao cruzar `Temp > 35°C` e `Umidade < 30%`, os controladores votam a mudança de estado, apenas o líder `ctrl_3` publica no tópico `estufa/atuadores/*`, o Atuador aciona bomba e exaustor e publica em `estufa/status/*`, fazendo o Sensor inverter a temperatura (caindo) e a umidade (subindo).*
 
-### Passo 3 — Comando Direto pelo Cliente
-- **Ação:** No **Cliente**, escolher opção `3` (Desligar bomba) ou `4` (Ligar exaustor) e depois `1` (Consultar estado).
-- **O que demonstrar:**
-  - *Aqui podemos ver que o Cliente se comunica diretamente com os controladores via `ClusterMiddleware`, que o comando é validado por consenso antes de ser persistido e replicado para os 3 arquivos `data_ctrl_*.json`.*
+### Passo 3 — Comando Manual Direto pelo Cliente
+- **Ação no terminal:** No **Cliente**, escolher opção `3` (Desligar bomba) ou `4` (Ligar exaustor) e conferir com opção `1` (Consultar estado).
+- **Onde mostrar no código:** `estufa/middleware.py` (`_chamar_com_failover`, `L194–L227`) e `estufa/controlador.py` (`_executar_comando_atuador`, `L747–L818`).
+- **O que explicar:**
+  - *O Cliente chama diretamente os controladores via `ClusterMiddleware`; o comando passa pela mesma votação de consenso no cluster antes de ser salvo nos 3 JSONs e enviado ao atuador.*
 
-### Passo 4 — Queda do Líder (`ctrl_3`) → Failover Automático para `ctrl_2` (2/2)
-- **Ação:** Fechar ou dar `Ctrl+C` na janela do **Controlador 3 (`:8003`)**. Aguardar ~2–3s e usar opção `6` e opção `2` no Cliente.
-- **O que demonstrar:**
-  - *Aqui podemos ver que ao encerrar o líder `ctrl_3`, o mecanismo de heartbeat (`_loop_heartbeat`) + algoritmo Bully garante que `ctrl_2` assuma a liderança automaticamente por conta da prioridade de rank (`2 > 1`), e o failover no `ClusterMiddleware` mantém o Cliente operando sem interrupção.*
+### Passo 4 — Queda do Líder (`ctrl_3`) → Eleição de `ctrl_2` (2/2)
+- **Ação no terminal:** Fechar ou dar `Ctrl+C` na janela do **Controlador 3 (`:8003`)**. Aguardar ~2–3s e rodar opções `6` e `2` no Cliente.
+- **Onde mostrar no código:** `estufa/controlador.py` (`_loop_heartbeat`, `L352–L387`; `realizar_eleicao`, `L257–L341`).
+- **O que explicar:**
+  - *Ao encerrar `ctrl_3`, o heartbeat dos seguidores detecta a queda e dispara uma nova eleição Bully; `ctrl_2` assume a liderança (`rank 2 > 1`) e o failover do `ClusterMiddleware` mantém o cliente funcionando sem erro.*
 
 ### Passo 5 — Queda de `ctrl_2` → Modo Degradado 1/1 em `ctrl_1`
-- **Ação:** Dar `Ctrl+C` na janela do **Controlador 2 (`:8002`)**. Usar opções `6`, `1` e `4` no Cliente.
-- **O que demonstrar:**
-  - *Aqui podemos ver que mesmo com 2 dos 3 controladores fora do ar, o mecanismo de quórum dinâmico permite que o último sobrevivente (`ctrl_1`) assuma a liderança isolada em modo degradado `1/1`, mantendo o controle da estufa disponível.*
+- **Ação no terminal:** Dar `Ctrl+C` na janela do **Controlador 2 (`:8002`)**. Rodar opções `6`, `1` e `4` no Cliente.
+- **Onde mostrar no código:** `estufa/middleware.py` (`calcular_consenso`, `L137–L170`).
+- **O que explicar:**
+  - *Com apenas 1 controlador vivo, o mecanismo de quórum dinâmico entra em modo degradado `1/1`, mantendo a estufa e o cliente operacionais em `ctrl_1`.*
 
 ### Passo 6 — Reconexão e Ressincronização Automática dos Bancos
-- **Ação:** Alterar o estado no Cliente enquanto só `ctrl_1` está vivo (ex.: ligar bomba com opção `2`). Em seguida, na janela de `ctrl_2` e `ctrl_3`, apertar `↑` e `Enter` para religá-los normalmente. Conferir opção `6` no Cliente e comparar `data_ctrl_1.json`, `data_ctrl_2.json` e `data_ctrl_3.json`.
-- **O que demonstrar:**
-  - *Aqui podemos ver que ao retomar os processos `ctrl_2` e `ctrl_3`, o mecanismo de sincronização no boot (`_sincronizar_com_cluster`) garante que eles copiem o estado oficial atualizado de `ctrl_1` para seus bancos locais antes de operar, e o algoritmo Bully devolve a liderança a `ctrl_3` sem divergência nos arquivos JSON.*
+- **Ação no terminal:** Alterar o estado no Cliente enquanto só `ctrl_1` está rodando (ex.: ligar bomba com opção `2`). Depois, nas janelas de `ctrl_2` e `ctrl_3`, apertar `↑` e `Enter` para religá-los. Conferir opção `6` e comparar `data_ctrl_1.json`, `data_ctrl_2.json` e `data_ctrl_3.json`.
+- **Onde mostrar no código:** `estufa/controlador.py` (`_sincronizar_com_cluster`, `L394–L482`; `anunciar_lider`, `L237–L254`).
+- **O que explicar:**
+  - *Ao retomar `ctrl_2` e `ctrl_3`, o método `_sincronizar_com_cluster` copia o estado atualizado de `ctrl_1` para os bancos locais antes de qualquer nova votação, e o Bully devolve a liderança a `ctrl_3` mantendo os 3 JSONs idênticos.*
 
-### Passo 7 — Falha Bizantina (`--byzantino`) e Detecção de Conflito (`ErroQuorum`)
-- **Ação A (3 ativos com 1 bizantino):** Dar `Ctrl+C` no `ctrl_2`, apertar `↑` e iniciar com `--byzantino`:
+### Passo 7 — Falha Bizantina (`--byzantino`) e `ErroQuorum`
+- **Ação A (3 ativos com 1 bizantino):** Dar `Ctrl+C` no `ctrl_2`, apertar `↑` e reiniciar com `--byzantino`:
   `.\.venv\Scripts\python.exe -u -m estufa.controlador 2 --byzantino`
-  Consultar opção `1` e enviar comando `3` no Cliente; comparar `data_ctrl_1.json` e `data_ctrl_3.json`.
-- **O que demonstrar A:**
-  - *Aqui podemos ver que embora `ctrl_2` esteja enviando leituras absurdas (`999.9°C`, `-50%`) e atuadores invertidos, o consenso majoritário (`2/3`) de `ctrl_1` e `ctrl_3` rejeita os dados bizantinos antes da persistência e mantém os bancos honestos intactos.*
-- **Ação B (2 ativos em conflito):** Dar `Ctrl+C` no `ctrl_1` (deixando apenas `ctrl_2 --byzantino` e `ctrl_3` honesto) e consultar opção `1` no Cliente.
-- **O que demonstrar B:**
-  - *Aqui podemos ver que com apenas 1 nó honesto e 1 bizantino ativos (empate `1 vs 1`), o mecanismo de quórum dinâmico dispara `ErroQuorum` para impedir que um dado corrompido seja aceito como oficial.*
+  No Cliente, consultar estado (`1`) e enviar comando (`3`); comparar `data_ctrl_1.json` e `data_ctrl_3.json`.
+- **Onde mostrar no código:** `estufa/controlador.py` (`coletar_voto_estado`, `L489–L502`) e `estufa/middleware.py` (`calcular_consenso`, `L156–L165`).
+- **O que explicar A:**
+  - *Mesmo com `ctrl_2` enviando `999.9°C`, `-50%` e atuadores invertidos, a maioria `2/3` (`ctrl_1` + `ctrl_3`) descarta o voto adulterado antes do `commit_estado`, protegendo os bancos honestos e a resposta ao cliente.*
+- **Ação B (2 ativos em empate `1 vs 1`):** Dar `Ctrl+C` no `ctrl_1` (deixando só `ctrl_2 --byzantino` e `ctrl_3` honesto) e consultar opção `1` no Cliente.
+- **O que explicar B:**
+  - *Com 1 nó honesto e 1 bizantino em empate `1 vs 1`, `calcular_consenso` não atinge concordância `2/2` e levanta `ErroQuorum` para não aceitar nem gravar dado corrompido.*
