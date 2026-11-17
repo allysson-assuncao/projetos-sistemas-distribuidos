@@ -1,7 +1,7 @@
 ---
 id: "lab-presentation-automation"
 title: "TP1 Lab Presentation Environment & Multi-Terminal Automation"
-version: "1.1.0"
+version: "1.2.0"
 status: "active"
 owners:
   - "@anybo"
@@ -25,26 +25,27 @@ resources: []
 
 ## Context & Objectives
 
-Provides a self-contained, zero-admin, Docker-free execution and validation layer for `trabalho_pratico1` on Windows laboratory computers, enabling one-command multi-terminal launch inside Antigravity IDE (VS Code) and automated pre-flight E2E verification of all presentation stages.
+Provides a self-contained, zero-admin, Docker-free execution and validation layer for `trabalho_pratico1` on Windows 11 laboratory computers (with Linux dual-boot compatibility), enabling independent interactive terminals with command history (`Ctrl+C` + `↑`), clean VS Code tasks, and automated pre-flight E2E verification of all 7 processes.
 
 ## Functional Requirements
 
 - **[RF-01]** `estufa.broker_local` MUST provide a pure-Python MQTT v3.1.1 broker on `127.0.0.1:1883` without requiring Docker, Windows Administrator privileges, or external `mosquitto.exe` binaries, supporting `CONNECT/CONNACK`, `SUBSCRIBE/SUBACK`, `PUBLISH/PUBACK` (`QoS 0` and `QoS 1`), `PINGREQ/PINGRESP`, and `DISCONNECT`, and exiting cleanly with a diagnostic message if the target port is already in use.
-- **[RF-02]** `.vscode/tasks.json` and `trabalho_pratico1/.vscode/tasks.json` MUST define background tasks grouped into split terminal panes (`1_infra`, `2_replicas`, `3_io`, `4_cliente`) and a compound task `🚀 [DEMO] 1. Subir Todo o Sistema (Estufa TP1)`.
-- **[RF-03]** `scripts/validate_e2e.py` MUST verify all 7 stages of `roteiro_apresentacao.md` against real subprocesses and remove temporary `data_ctrl_*.json` files upon completion.
+- **[RF-02]** `scripts/start_all.ps1`, `.vscode/tasks.json`, and `trabalho_pratico1/.vscode/tasks.json` MUST launch and manage the 7-process distributed architecture (`broker_local`, `ctrl_1..3` on `8001..8003`, `atuador`, `sensor`, and `cliente`) without `middleware_server` (`:9000`) or `--modo`, providing independent interactive terminals with command history for live parameter adjustments and individual service restarts on Windows 11.
+- **[RF-03]** `scripts/validate_e2e.py` MUST verify the 7-process architecture end-to-end against real subprocesses (Bully election, closed-loop MQTT actuation + identical `data_ctrl_1..3.json` persistence, sequential `ctrl_3 -> ctrl_2 -> ctrl_1` failover, reconnection DB sync, 2/3 Byzantine masking, and 2-node conflict `ErroQuorum`) and remove temporary `data_ctrl_*.json` files upon completion.
 
 ## Non-Functional Requirements
 
-- **[RNF-01]** E2E validation suite MUST complete in under 25 seconds on a standard Windows machine.
-- **[RNF-02]** All local services MUST bind strictly to loopback (`localhost` / `127.0.0.1`).
+- **[RNF-01]** E2E validation suite MUST complete in under 45 seconds on a standard Windows machine.
+- **[RNF-02]** All local services MUST bind strictly to loopback (`127.0.0.1`).
 
 ## Out of Scope
 
-- Modifying existing consensus, hysteresis, or LRU deduplication logic in `estufa/`.
+- Cloud deployment or external LAN exposure outside loopback (`127.0.0.1`).
 
 ## Revision History
 
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-11-12 | @anybo | Initial specification for lab presentation readiness |
-| 1.1.0 | 2026-11-17 | @anybo | Streamlined pure-Python broker_local (simplify-components-and-tests) |
+| 1.1.0 | 2026-11-17 | @anybo | Streamlined pure-Python broker_local (`simplify-components-and-tests`) |
+| 1.2.0 | 2026-11-17 | @anybo | Updated for 7-process interactive Windows 11 demo, E2E suite, and documentation (`prepare-interactive-windows-demo-and-docs`) |
