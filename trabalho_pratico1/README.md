@@ -9,12 +9,12 @@ Sistema distribuído com **comunicação direta Cliente ↔ Controladores via XM
 Na arquitetura original do enunciado ([Trabalho Prático 1 - SD.pdf](./Trabalho%20Prático%201%20-%20SD.pdf)), o **MIDDLEWARE** não é um processo intermediário externo (que criaria ponto único de falha), mas sim a **camada lógica distribuída que engloba os próprios Controladores de Processo** e seus mecanismos de invocação direta, sincronização P2P, tolerância a falhas e replicação de armazenamento.
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph ClienteLayer["Camada Cliente"]
         CLI["Cliente CLI<br/>(estufa.cliente + ClusterMiddleware)"]
     end
 
-    subgraph Middleware["MIDDLEWARE (Camada Lógica XML-RPC, Liderança e Consenso)"]
+    subgraph Middleware["MIDDLEWARE (XML-RPC P2P, Liderança Bully e Consenso)"]
         direction TB
         C1["Controlador 1<br/>(127.0.0.1:8001 | rank 1)"]
         C2["Controlador 2<br/>(127.0.0.1:8002 | rank 2)"]
@@ -24,33 +24,39 @@ flowchart LR
         DB2[("Armazenamento 2<br/>data_ctrl_2.json")]
         DB3[("Armazenamento 3<br/>data_ctrl_3.json")]
 
-        C1 <-->|"XML-RPC P2P: Eleição Bully, Heartbeat,<br/>Votação (coletar_voto_estado) e Sync"| C2
-        C2 <-->|"XML-RPC P2P: Eleição Bully, Heartbeat,<br/>Votação (coletar_voto_estado) e Sync"| C3
-        C1 <-->|"XML-RPC P2P: Eleição Bully, Heartbeat,<br/>Votação (coletar_voto_estado) e Sync"| C3
+        C1 <-->|"XML-RPC P2P<br/>Bully, Heartbeat,<br/>Votação e Sync"| C2
+        C2 <-->|"XML-RPC P2P<br/>Bully, Heartbeat,<br/>Votação e Sync"| C3
+        C1 <-->|"XML-RPC P2P"| C3
 
-        C1 <-->|"Replicação Síncrona<br/>(commit_estado atômico)"| DB1
-        C2 <-->|"Replicação Síncrona<br/>(commit_estado atômico)"| DB2
-        C3 <-->|"Replicação Síncrona<br/>(commit_estado atômico)"| DB3
+        C1 <-->|"Replicação<br/>commit_estado"| DB1
+        C2 <-->|"Replicação<br/>commit_estado"| DB2
+        C3 <-->|"Replicação<br/>commit_estado"| DB3
     end
 
     subgraph IoTLayer["Camada IoT (MQTT v3.1.1 QoS 1 — 127.0.0.1:1883)"]
+        direction TB
         BROKER(("Broker MQTT<br/>(broker_local :1883)"))
         SENS["Sensor Contínuo<br/>(estufa.sensor)"]
         ATU["Atuador Bomba/Exaustor<br/>(estufa.atuador)"]
     end
 
-    CLI <-->|"Invocação de Métodos (XML-RPC Direto)<br/>obter_estado, comandar_*, verificar_saude<br/>com Failover Transparente"| C1
-    CLI <-->|"Invocação de Métodos (XML-RPC Direto)<br/>Failover Automático"| C2
-    CLI <-->|"Invocação de Métodos (XML-RPC Direto)<br/>Roteamento Preferencial ao Líder"| C3
+    %% Camada Cliente -> Controladores (XML-RPC Direto)
+    CLI <-.->|"XML-RPC Direto<br/>Failover"| C1
+    CLI <-.->|"XML-RPC Direto<br/>Failover"| C2
+    CLI <-->|"XML-RPC Direto (Líder)<br/>obter_estado, comandar_*"| C3
 
-    SENS -->|"Pub QoS 1:<br/>estufa/sensores/temperatura<br/>estufa/sensores/umidade_solo"| BROKER
+    %% Middleware -> Broker -> Camada IoT (ordem preserva fluxo vertical top-down)
+    DB3 ~~~ BROKER
+    C3 -->|"Pub QoS 1 (APENAS O LÍDER):<br/>estufa/atuadores/bomba<br/>estufa/atuadores/exaustor"| BROKER
     BROKER -->|"Sub QoS 1:<br/>estufa/sensores/*"| C1
     BROKER -->|"Sub QoS 1:<br/>estufa/sensores/*"| C2
     BROKER -->|"Sub QoS 1:<br/>estufa/sensores/*"| C3
-    C3 -->|"Pub QoS 1 (APENAS O LÍDER após Consenso):<br/>estufa/atuadores/bomba<br/>estufa/atuadores/exaustor"| BROKER
+
+    %% Broker <-> Dispositivos de Campo (Malha Fechada)
+    BROKER -->|"Sub QoS 1 (Malha Fechada):<br/>estufa/status/*"| SENS
+    SENS -->|"Pub QoS 1:<br/>estufa/sensores/temperatura<br/>estufa/sensores/umidade_solo"| BROKER
     BROKER -->|"Sub QoS 1:<br/>estufa/atuadores/*"| ATU
     ATU -->|"Pub QoS 1:<br/>estufa/status/bomba<br/>estufa/status/exaustor"| BROKER
-    BROKER -->|"Sub QoS 1 (Malha Fechada):<br/>estufa/status/*"| SENS
 ```
 
 ### Legenda das Camadas, Setas e Comunicações
