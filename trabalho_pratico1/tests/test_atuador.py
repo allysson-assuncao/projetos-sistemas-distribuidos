@@ -1,71 +1,75 @@
 """
-test_atuador.py — Testes unitários do cache LRU de deduplicação do atuador.
+test_atuador.py — Testes unitários do processo Atuador simplificado (sem cache LRU).
 """
 
+import json
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 import pytest
-from estufa import config
-from estufa.atuador import _is_duplicado, _dedup_cache
+
+from estufa import atuador, config
 
 
 @pytest.fixture(autouse=True)
-def limpar_cache():
-    """Limpa o cache LRU antes e após cada teste."""
-    _dedup_cache.clear()
+def resetar_estados():
+    """Restaura os estados internos de bomba e exaustor antes e após cada teste."""
+    atuador._estado_bomba["ligado"] = False
+    atuador._estado_exaustor["ligado"] = False
     yield
-    _dedup_cache.clear()
+    atuador._estado_bomba["ligado"] = False
+    atuador._estado_exaustor["ligado"] = False
 
 
-class TestDeduplicacaoLRU:
-    def test_novo_comando_id_nao_e_duplicado(self):
-        """Um identificador inédito deve ser aceito na primeira chamada."""
-        assert _is_duplicado("uuid-novo-123") is False
+class TestAtuadorSimplificado:
+    """TP-03 & TE-02: Acionamento unificado, publicação de status QoS 1 e resiliência."""
 
-    def test_mesmo_comando_id_e_duplicado(self):
-        """O mesmo identificador enviado duas vezes deve ser descartado na segunda vez."""
-        _is_duplicado("uuid-repetido-456")
-        assert _is_duplicado("uuid-repetido-456") is True
+    def test_tp03_on_connect_assina_topicos_de_atuadores(self):
+        """Assina comandos da bomba e do exaustor com QoS 1 ao conectar."""
+        cli = MagicMock()
+        atuador._on_connect(cli, None, None, 0, None)
+        cli.subscribe.assert_any_call(config.TOPIC_ATUADOR_BOMBA, qos=1)
+        cli.subscribe.assert_any_call(config.TOPIC_ATUADOR_EXAUSTOR, qos=1)
 
-    def test_ids_diferentes_nao_sao_duplicados(self):
-        """Identificadores distintos devem ser processados de forma independente."""
-        assert _is_duplicado("uuid-a") is False
-        assert _is_duplicado("uuid-b") is False
-        assert _is_duplicado("uuid-c") is False
+    def test_tp03_comandar_bomba_e_exaustor_publica_status_qos1(self):
+        """Comandos 'ligar' e 'desligar' atualizam estado e publicam status QoS 1."""
+        cli = MagicMock()
 
-    def test_sem_id_nunca_e_duplicado(self):
-        """Comandos sem comando_id (string vazia) devem ser sempre processados."""
-        assert _is_duplicado("") is False
-        assert _is_duplicado("") is False
+        atuador._on_message(cli, None, SimpleNamespace(
+            topic=config.TOPIC_ATUADOR_BOMBA,
+            payload=json.dumps({"acao": "ligar", "origem": "ctrl_3"}).encode("utf-8"),
+        ))
+        assert atuador._estado_bomba["ligado"] is True
+        topico_pub, payload_raw = cli.publish.call_args[0]
+        assert topico_pub == config.TOPIC_STATUS_BOMBA
+        assert json.loads(payload_raw)["ligado"] is True
+        assert cli.publish.call_args[1]["qos"] == 1
 
-    def test_cache_evicao_quando_cheio(self):
-        """Ao atingir DEDUP_CACHE_SIZE, a entrada menos recentemente usada é removida."""
-        for i in range(config.DEDUP_CACHE_SIZE):
-            _is_duplicado(f"uuid-{i:04d}")
+        atuador._on_message(cli, None, SimpleNamespace(
+            topic=config.TOPIC_ATUADOR_EXAUSTOR,
+            payload=json.dumps({"acao": "ligar", "origem": "ctrl_3"}).encode("utf-8"),
+        ))
+        assert atuador._estado_exaustor["ligado"] is True
+        assert cli.publish.call_args[0][0] == config.TOPIC_STATUS_EXAUSTOR
 
-        assert len(_dedup_cache) == config.DEDUP_CACHE_SIZE
+        atuador._on_message(cli, None, SimpleNamespace(
+            topic=config.TOPIC_ATUADOR_BOMBA,
+            payload=json.dumps({"acao": "desligar", "origem": "ctrl_3"}).encode("utf-8"),
+        ))
+        assert atuador._estado_bomba["ligado"] is False
 
-        _is_duplicado("uuid-novo-apos-cheio")
-        assert len(_dedup_cache) == config.DEDUP_CACHE_SIZE
+    def test_te02_ignora_payload_malformado_e_acao_invalida(self):
+        """JSON inválido ou ação desconhecida não altera estado nem publica feedback."""
+        cli = MagicMock()
 
-        assert _is_duplicado("uuid-0000") is False
+        atuador._on_message(cli, None, SimpleNamespace(
+            topic=config.TOPIC_ATUADOR_BOMBA,
+            payload=b"{corrompido",
+        ))
+        atuador._on_message(cli, None, SimpleNamespace(
+            topic=config.TOPIC_ATUADOR_EXAUSTOR,
+            payload=json.dumps({"acao": "invalido"}).encode("utf-8"),
+        ))
 
-    def test_lru_atualiza_posicao_ao_ser_acessado(self):
-        """Consultar uma chave já existente renova sua posição no cache LRU."""
-        for i in range(config.DEDUP_CACHE_SIZE):
-            _is_duplicado(f"uuid-{i:04d}")
-
-        _is_duplicado("uuid-0000")
-        _is_duplicado("uuid-novo-refresh-test")
-
-        assert _is_duplicado("uuid-0000") is True
-
-    def test_tres_publicacoes_simultaneas_do_mesmo_comando(self):
-        """Simula as 3 réplicas publicando o mesmo comando_id: apenas a primeira é aceita."""
-        shared_id = "uuid-middleware-gerado-xyz"
-
-        result_ctrl1 = _is_duplicado(shared_id)
-        result_ctrl2 = _is_duplicado(shared_id)
-        result_ctrl3 = _is_duplicado(shared_id)
-
-        assert result_ctrl1 is False
-        assert result_ctrl2 is True
-        assert result_ctrl3 is True
+        assert atuador._estado_bomba["ligado"] is False
+        assert atuador._estado_exaustor["ligado"] is False
+        cli.publish.assert_not_called()
