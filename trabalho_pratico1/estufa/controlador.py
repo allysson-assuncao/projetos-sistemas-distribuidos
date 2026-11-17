@@ -22,7 +22,6 @@ import socket
 import socketserver
 import threading
 import time
-import uuid
 import xmlrpc.client
 from xmlrpc.server import SimpleXMLRPCServer
 import paho.mqtt.client as mqtt
@@ -240,6 +239,7 @@ class Controlador:
         print(f"[ELEICAO] [{self.ctrl_id}] Novo líder reconhecido: {self.lider_id}")
         return {"ok": True, "id": self.ctrl_id, "lider_id": self.lider_id}
 
+    # Algoritmo Valentão (Bully): consulta nós com rank maior; se nenhum responder, assume liderança
     def realizar_eleicao(self) -> str:
         """Executa o algoritmo Bully entre os pares configurados e elege o maior rank ativo."""
         with self._eleicao_lock:
@@ -330,6 +330,7 @@ class Controlador:
                 return par
         return None
 
+    # Detecção de falha por heartbeat: monitora o líder via ping() e dispara eleição se cair
     def _loop_heartbeat(self) -> None:
         """Monitora periodicamente o líder ativo e dispara eleição em caso de falha."""
         while not self._parar_evento.is_set():
@@ -371,6 +372,7 @@ class Controlador:
     # Sincronização de Réplica na Inicialização / Reconexão
     # ------------------------------------------------------------------
 
+    # Recuperação de réplica: ao religar, puxa o estado oficial dos pares antes de operar
     def _sincronizar_com_cluster(self) -> bool:
         """
         Consulta os pares ativos na inicialização para obter o estado oficial atual
@@ -448,6 +450,7 @@ class Controlador:
     # Consenso Dinâmico e Persistência Replicada (commit_estado)
     # ------------------------------------------------------------------
 
+    # Votação P2P: cada nó avalia as regras de histerese (ou adultera em modo --byzantino)
     def coletar_voto_estado(self, proposta: dict | None = None) -> dict:
         """
         Retorna o voto deste controlador para validação por consenso antes do commit.
@@ -498,6 +501,7 @@ class Controlador:
             "lider_id": lider_atual,
         }
 
+    # Persistência replicada: todas as réplicas ativas gravam o mesmo JSON validado pelo Líder
     def commit_estado(self, estado_oficial: dict) -> dict:
         """
         Recebe o estado oficial validado por consenso pelo Líder e persiste no banco local.
@@ -524,17 +528,18 @@ class Controlador:
 
         return {"ok": True, "id": self.ctrl_id}
 
+    # Apenas o Líder publica comandos MQTT após o consenso, evitando duplicidade no atuador
     def _publicar_comando(self, topico: str, acao: str) -> None:
         """Publica comando oficial para o atuador via MQTT (chamado apenas pelo Líder)."""
         payload = json.dumps({
             "acao": acao,
             "origem": self.ctrl_id,
-            "comando_id": str(uuid.uuid4()),
             "timestamp": time.time(),
         })
         if self._mqtt_client:
             self._mqtt_client.publish(topico, payload, qos=1)
 
+    # Coordenação do consenso: coleta votos em paralelo, resolve quórum e replica commit_estado
     def _coordenar_consenso_e_persistir(
         self,
         proposta: dict,
@@ -633,6 +638,7 @@ class Controlador:
     # MQTT: Consumo de Sensores
     # ------------------------------------------------------------------
 
+    # Inscrição MQTT QoS 1 nos tópicos dos sensores ao conectar ao broker
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code == 0:
             client.subscribe(config.TOPIC_TEMPERATURA, qos=1)

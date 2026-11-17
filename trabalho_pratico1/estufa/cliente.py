@@ -37,6 +37,7 @@ def exibir_estado(estado: dict) -> None:
     print("=" * 52 + "\n")
 
 
+# Tratamento resiliente de falhas RPC/rede: cliente continua operando mesmo com queda de nós
 def _executar_acao_segura(funcao, *args) -> None:
     """Executa uma chamada ao cluster tratando falhas de quórum ou rede sem abortar o cliente."""
     try:
@@ -121,6 +122,7 @@ if __name__ == "__main__":
     parser.add_argument("--intervalo", type=float, default=3.0, help="Intervalo do modo contínuo (s)")
     args = parser.parse_args()
 
+    # Middleware embarcado no cliente: descobre e roteia direto para o controlador líder
     mw = ClusterMiddleware()
     if args.auto:
         modo_automatico(mw, intervalo=args.intervalo)

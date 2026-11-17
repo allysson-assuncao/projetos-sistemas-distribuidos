@@ -19,6 +19,7 @@ class ErroQuorum(Exception):
     """Exceção lançada quando não há consenso ou controladores ativos suficientes."""
 
 
+# Transporte XML-RPC com timeout explícito para evitar travamento TCP longo no Windows
 class _TimeoutTransport(xmlrpc.client.Transport):
     """Transporte XML-RPC com timeout explícito de socket para evitar travamentos no Windows."""
 
@@ -132,6 +133,7 @@ class ClusterMiddleware:
         }
         return json.dumps(copia, sort_keys=True)
 
+    # Consenso dinâmico: 3 nós (maioria 2/3 mascara 1 bizantino), 2 nós (2/2), 1 nó (1/1 degradado)
     @classmethod
     def calcular_consenso(
         cls,
@@ -188,6 +190,7 @@ class ClusterMiddleware:
                 self._lider_atual = ctrl
                 return
 
+    # Comunicação direta Cliente -> Controladores com failover automático em queda ou timeout
     def _chamar_com_failover(self, metodo: str, *args) -> Any:
         """
         Executa uma chamada XML-RPC diretamente contra o líder ou réplica ativa,
@@ -223,6 +226,7 @@ class ClusterMiddleware:
 
         raise ErroQuorum(f"ERRO_QUORUM: Nenhum controlador acessível. Detalhes: {erros}")
 
+    # Consulta paralela a todas as réplicas ativas para validar estado oficial por consenso
     def obter_estado(self) -> dict:
         """
         Consulta diretamente todos os controladores alcançáveis em paralelo e valida

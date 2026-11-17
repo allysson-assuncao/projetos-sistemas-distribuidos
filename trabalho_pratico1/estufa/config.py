@@ -5,12 +5,12 @@ Centraliza tópicos MQTT, topologia do cluster XML-RPC de controladores,
 limiares de acionamento e parâmetros de eleição e consenso.
 """
 
-# Broker MQTT
+# Configuração do Broker MQTT v3.1.1 (camada IoT: sensores <-> controladores <-> atuador)
 MQTT_HOST = "localhost"
 MQTT_PORT = 1883
 MQTT_KEEPALIVE = 60
 
-# Tópicos MQTT
+# Tópicos MQTT divididos por fluxo de telemetria, comando oficial e feedback
 TOPIC_TEMPERATURA = "estufa/sensores/temperatura"
 TOPIC_UMIDADE_SOLO = "estufa/sensores/umidade_solo"
 TOPIC_ATUADOR_BOMBA = "estufa/atuadores/bomba"
@@ -18,7 +18,8 @@ TOPIC_ATUADOR_EXAUSTOR = "estufa/atuadores/exaustor"
 TOPIC_STATUS_BOMBA = "estufa/status/bomba"
 TOPIC_STATUS_EXAUSTOR = "estufa/status/exaustor"
 
-# Topologia do cluster de controladores (Middleware lógico distribuído via XML-RPC)
+# Topologia do cluster distribuído (Middleware lógico embarcado via XML-RPC direto).
+# O 'rank' define a prioridade na eleição de líder pelo algoritmo Bully (1 < 2 < 3).
 MAPA_CONTROLADORES = {
     1: {"id": "ctrl_1", "rank": 1, "host": "localhost", "port": 8001, "data_file": "data_ctrl_1.json"},
     2: {"id": "ctrl_2", "rank": 2, "host": "localhost", "port": 8002, "data_file": "data_ctrl_2.json"},
@@ -31,9 +32,7 @@ CONTROLADORES = [
 
 
 def obter_config_controlador(identificador: str | int) -> dict:
-    """
-    Resolve a configuração de um controlador pelo número (1..3) ou ID ('ctrl_1'..'ctrl_3').
-    """
+    """Resolve a configuração de um controlador pelo número (1..3) ou ID ('ctrl_1'..'ctrl_3')."""
     if isinstance(identificador, bool):
         raise ValueError(f"Identificador de controlador inválido: {identificador}")
 
@@ -56,16 +55,13 @@ def obter_config_controlador(identificador: str | int) -> dict:
     return dict(MAPA_CONTROLADORES[chave])
 
 
-# Limiares de controle ambiental (com histerese)
+# Faixas de histerese ambiental avaliadas pelos controladores antes do consenso
 TEMP_MAX_CELSIUS = 35.0      # Acima: liga o exaustor
 TEMP_MIN_CELSIUS = 15.0      # Abaixo: desliga o exaustor
 UMIDADE_MIN_PERCENT = 30.0   # Abaixo: liga a bomba de irrigação
 UMIDADE_MAX_PERCENT = 70.0   # Acima: desliga a bomba de irrigação
 
-# Parâmetros de comunicação RPC, heartbeat e consenso
+# Timeouts explícitos de RPC e intervalo de heartbeat para detecção rápida de queda
 TIMEOUT_RPC_SEGUNDOS = 1.5
 INTERVALO_HEARTBEAT_SEGUNDOS = 2.0
 QUORUM_MINIMO = 2
-
-# Mantido temporariamente até simplificação do atuador na próxima etapa
-DEDUP_CACHE_SIZE = 50

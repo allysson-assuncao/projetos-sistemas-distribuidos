@@ -1,25 +1,21 @@
-"""Broker MQTT v3.1.1 local (Híbrido: Mosquitto portátil + Fallback em Python puro).
+"""
+broker_local.py — Broker MQTT v3.1.1 leve em Python puro.
 
-Projetado para execução em ambientes Windows sem Docker e sem permissões de
-Administrador (como laboratórios acadêmicos). Tenta utilizar o binário portátil
-`broker/bin/mosquitto.exe` se disponível; caso contrário (ou se bloqueado por
-políticas do sistema operacional), executa um broker MQTT v3.1.1 nativo em
-Python puro (stdlib `socket` + `threading`) com suporte a QoS 0 e QoS 1.
+Permite executar toda a camada MQTT no laboratório (Windows 11 sem Docker e
+sem permissões de Administrador) usando apenas a biblioteca padrão do Python.
+Suporta CONNECT/CONNACK, SUBSCRIBE/SUBACK, PUBLISH/PUBACK (QoS 0 e 1),
+PINGREQ/PINGRESP e DISCONNECT em localhost (127.0.0.1).
 """
 
 import argparse
-from pathlib import Path
 import socket
-import subprocess
-import sys
 import threading
 from typing import Dict, List, Optional, Set
-
 from estufa import config
 
 
 def _codificar_remaining_length(tamanho: int) -> bytes:
-    """Codifica o campo Remaining Length no formato varint do MQTT v3.1.1 (1 a 4 bytes)."""
+    """Codifica o campo Remaining Length no padrão varint do MQTT v3.1.1 (1 a 4 bytes)."""
     if tamanho < 0 or tamanho > 268_435_455:
         raise ValueError(f"Remaining length fora dos limites MQTT: {tamanho}")
     saida = bytearray()
@@ -35,7 +31,7 @@ def _codificar_remaining_length(tamanho: int) -> bytes:
 
 
 def _decodificar_remaining_length_bytes(dados: bytes) -> int:
-    """Decodifica bytes varint MQTT (útil para testes unitários)."""
+    """Decodifica varint MQTT (máximo 4 bytes) rejeitando pacotes corrompidos."""
     multiplicador = 1
     valor = 0
     for idx, byte in enumerate(dados):
@@ -48,27 +44,11 @@ def _decodificar_remaining_length_bytes(dados: bytes) -> int:
     raise ValueError("Remaining Length incompleto")
 
 
-def _topico_casa_filtro(topico: str, filtro: str) -> bool:
-    """Verifica se um tópico MQTT casa com um filtro (suporta exato, '+' e '#')."""
-    if topico == filtro or filtro == "#":
-        return True
-    partes_topico = topico.split("/")
-    partes_filtro = filtro.split("/")
-    for i, pf in enumerate(partes_filtro):
-        if pf == "#":
-            return True
-        if i >= len(partes_topico):
-            return False
-        if pf != "+" and pf != partes_topico[i]:
-            return False
-    return len(partes_topico) == len(partes_filtro)
-
-
 class BrokerMQTTLocal:
-    """Servidor MQTT v3.1.1 leve em Python puro com suporte a QoS 0 e QoS 1."""
+    """Servidor MQTT v3.1.1 enxuto com roteamento exato de tópicos e entrega QoS 0/1."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = config.MQTT_PORT, silencioso: bool = False):
-        if not isinstance(port, int) or not (0 <= port <= 65535):
+        if isinstance(port, bool) or not isinstance(port, int) or not (0 <= port <= 65535):
             raise ValueError(f"Porta inválida: {port}. Deve estar entre 0 e 65535.")
         if not host or not isinstance(host, str):
             raise ValueError("Host inválido.")
@@ -79,7 +59,6 @@ class BrokerMQTTLocal:
         self._sock_servidor: Optional[socket.socket] = None
         self._rodando = threading.Event()
         self._lock = threading.Lock()
-        # Mapeia filtro_topico -> conjunto de sockets assinantes
         self._assinaturas: Dict[str, Set[socket.socket]] = {}
         self._clientes: Set[socket.socket] = set()
         self._client_ids: Dict[socket.socket, str] = {}
@@ -90,7 +69,7 @@ class BrokerMQTTLocal:
             print(msg, flush=True)
 
     def iniciar_em_background(self) -> int:
-        """Inicia o servidor TCP em uma thread separada e retorna a porta vinculada."""
+        """Abre o socket TCP em thread daemon e retorna a porta vinculada."""
         self._sock_servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock_servidor.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._sock_servidor.bind((self.host, self.port))
@@ -105,24 +84,22 @@ class BrokerMQTTLocal:
             daemon=True,
         )
         self._thread_aceitacao.start()
-        self._log(
-            f"[BROKER-MQTT] Broker Python nativo ativo em {self.host}:{self.port} (MQTT v3.1.1 QoS 0/1)"
-        )
+        self._log(f"[BROKER-MQTT] Ativo em {self.host}:{self.port} (MQTT v3.1.1 QoS 0/1)")
         return self.port
 
     def servir_para_sempre(self) -> None:
-        """Inicia o broker e bloqueia até receber interrupção (Ctrl+C)."""
+        """Mantém o broker ativo até receber Ctrl+C."""
         self.iniciar_em_background()
         try:
             while self._rodando.is_set():
                 self._rodando.wait(timeout=1.0)
         except KeyboardInterrupt:
-            self._log("\n[BROKER-MQTT] Encerrando broker local...")
+            self._log("\n[BROKER-MQTT] Encerrando broker...")
         finally:
             self.parar()
 
     def parar(self) -> None:
-        """Encerra o servidor e desconecta todos os clientes."""
+        """Encerra o socket servidor e desconecta clientes ativos."""
         self._rodando.clear()
         if self._sock_servidor is not None:
             try:
@@ -161,13 +138,11 @@ class BrokerMQTTLocal:
 
             with self._lock:
                 self._clientes.add(conn)
-
-            t = threading.Thread(
+            threading.Thread(
                 target=self._atender_cliente,
                 args=(conn, addr),
                 daemon=True,
-            )
-            t.start()
+            ).start()
 
     @staticmethod
     def _ler_exato(conn: socket.socket, n: int) -> Optional[bytes]:
@@ -185,7 +160,7 @@ class BrokerMQTTLocal:
     def _ler_remaining_length(self, conn: socket.socket) -> Optional[int]:
         multiplicador = 1
         valor = 0
-        for idx in range(4):
+        for _ in range(4):
             b = self._ler_exato(conn, 1)
             if b is None:
                 return None
@@ -197,6 +172,7 @@ class BrokerMQTTLocal:
         raise ValueError("Remaining Length MQTT inválido (> 4 bytes)")
 
     def _remover_cliente(self, conn: socket.socket) -> None:
+        """Remove assinaturas e fecha socket de clientes desconectados ou inválidos."""
         with self._lock:
             self._clientes.discard(conn)
             client_id = self._client_ids.pop(conn, None)
@@ -209,6 +185,7 @@ class BrokerMQTTLocal:
         if client_id:
             self._log(f"[BROKER-MQTT] Cliente desconectado: {client_id}")
 
+    # Loop de atendimento MQTT v3.1.1: trata conexão, assinatura, publicação e desconexão
     def _atender_cliente(self, conn: socket.socket, addr) -> None:
         try:
             while self._rodando.is_set():
@@ -230,18 +207,16 @@ class BrokerMQTTLocal:
                     self._processar_connect(conn, payload, addr)
                 elif tipo_pacote == 0x80:  # SUBSCRIBE
                     self._processar_subscribe(conn, payload)
-                elif tipo_pacote == 0xA0:  # UNSUBSCRIBE
-                    self._processar_unsubscribe(conn, payload)
                 elif tipo_pacote == 0x30:  # PUBLISH
                     self._processar_publish(conn, primeiro_byte, payload)
                 elif tipo_pacote == 0x40:  # PUBACK
                     pass
                 elif tipo_pacote == 0xC0:  # PINGREQ
-                    conn.sendall(b"\xD0\x00")  # PINGRESP
+                    conn.sendall(b"\xD0\x00")
                 elif tipo_pacote == 0xE0:  # DISCONNECT
                     break
                 else:
-                    raise ValueError(f"Tipo de pacote MQTT desconhecido: 0x{tipo_pacote:02x}")
+                    raise ValueError(f"Tipo de pacote MQTT não suportado: 0x{tipo_pacote:02x}")
         except (ValueError, UnicodeDecodeError, IndexError, OSError):
             pass
         finally:
@@ -251,7 +226,7 @@ class BrokerMQTTLocal:
         if len(payload) < 10:
             raise ValueError("Pacote CONNECT muito curto")
         proto_len = int.from_bytes(payload[0:2], "big")
-        idx = 2 + proto_len + 4  # pula protocol name (2+N), level (1), flags (1), keepalive (2)
+        idx = 2 + proto_len + 4
         client_id = f"{addr[0]}:{addr[1]}"
         if len(payload) >= idx + 2:
             cid_len = int.from_bytes(payload[idx : idx + 2], "big")
@@ -263,8 +238,7 @@ class BrokerMQTTLocal:
         with self._lock:
             self._client_ids[conn] = client_id
 
-        # CONNACK: Session Present = 0, Return Code = 0 (Connection Accepted)
-        conn.sendall(b"\x20\x02\x00\x00")
+        conn.sendall(b"\x20\x02\x00\x00")  # CONNACK aceito
         self._log(f"[BROKER-MQTT] Cliente conectado: {client_id}")
 
     def _processar_subscribe(self, conn: socket.socket, payload: bytes) -> None:
@@ -272,45 +246,29 @@ class BrokerMQTTLocal:
             raise ValueError("Pacote SUBSCRIBE inválido")
         packet_id = payload[0:2]
         idx = 2
-        codigos_retorno: List[int] = []
+        codigos: List[int] = []
 
         while idx < len(payload):
             if idx + 2 > len(payload):
-                raise ValueError("Filtro de tópico truncado no SUBSCRIBE")
+                raise ValueError("Tópico truncado no SUBSCRIBE")
             topico_len = int.from_bytes(payload[idx : idx + 2], "big")
             idx += 2
             if idx + topico_len + 1 > len(payload):
-                raise ValueError("Conteúdo de tópico truncado no SUBSCRIBE")
-            filtro = payload[idx : idx + topico_len].decode("utf-8")
+                raise ValueError("Conteúdo truncado no SUBSCRIBE")
+            topico = payload[idx : idx + topico_len].decode("utf-8")
             idx += topico_len
-            qos_solicitado = payload[idx] & 0x03
+            qos = min(payload[idx] & 0x03, 1)
             idx += 1
 
             with self._lock:
-                self._assinaturas.setdefault(filtro, set()).add(conn)
+                self._assinaturas.setdefault(topico, set()).add(conn)
                 cid = self._client_ids.get(conn, "cliente")
 
-            codigos_retorno.append(min(qos_solicitado, 1))
-            self._log(f"[BROKER-MQTT] Assinatura registrada: {cid} -> '{filtro}' (QoS {min(qos_solicitado, 1)})")
+            codigos.append(qos)
+            self._log(f"[BROKER-MQTT] Assinatura: {cid} -> '{topico}' (QoS {qos})")
 
-        corpo_suback = packet_id + bytes(codigos_retorno)
-        pacote_suback = b"\x90" + _codificar_remaining_length(len(corpo_suback)) + corpo_suback
-        conn.sendall(pacote_suback)
-
-    def _processar_unsubscribe(self, conn: socket.socket, payload: bytes) -> None:
-        if len(payload) < 4:
-            raise ValueError("Pacote UNSUBSCRIBE inválido")
-        packet_id = payload[0:2]
-        idx = 2
-        while idx + 2 <= len(payload):
-            topico_len = int.from_bytes(payload[idx : idx + 2], "big")
-            idx += 2
-            filtro = payload[idx : idx + topico_len].decode("utf-8")
-            idx += topico_len
-            with self._lock:
-                if filtro in self._assinaturas:
-                    self._assinaturas[filtro].discard(conn)
-        conn.sendall(b"\xB0\x02" + packet_id)
+        corpo = packet_id + bytes(codigos)
+        conn.sendall(b"\x90" + _codificar_remaining_length(len(corpo)) + corpo)
 
     def _processar_publish(self, conn: socket.socket, primeiro_byte: int, payload: bytes) -> None:
         if len(payload) < 2:
@@ -324,41 +282,30 @@ class BrokerMQTTLocal:
 
         if qos > 0:
             if len(payload) < idx + 2:
-                raise ValueError("Packet ID ausente em PUBLISH com QoS > 0")
+                raise ValueError("Packet ID ausente em PUBLISH QoS > 0")
             packet_id = payload[idx : idx + 2]
             idx += 2
             if qos == 1:
-                # Envia PUBACK imediatamente para liberar wait_for_publish()
+                # PUBACK imediato garante confirmação de entrega QoS 1 ao publicador
                 conn.sendall(b"\x40\x02" + packet_id)
 
         mensagem = payload[idx:]
-
-        # Monta frame PUBLISH de entrega para todos os assinantes do tópico
         topico_bytes = topico.encode("utf-8")
-        corpo_entrega = len(topico_bytes).to_bytes(2, "big") + topico_bytes + mensagem
-        pacote_entrega = (
-            b"\x30" + _codificar_remaining_length(len(corpo_entrega)) + corpo_entrega
-        )
+        corpo = len(topico_bytes).to_bytes(2, "big") + topico_bytes + mensagem
+        pacote = b"\x30" + _codificar_remaining_length(len(corpo)) + corpo
 
-        destinatarios: Set[socket.socket] = set()
         with self._lock:
-            for filtro, socks in self._assinaturas.items():
-                if _topico_casa_filtro(topico, filtro):
-                    destinatarios.update(socks)
+            destinatarios = set(self._assinaturas.get(topico, ()))
 
         falhos: List[socket.socket] = []
-        for sock_ass in destinatarios:
+        for sock in destinatarios:
             try:
-                sock_ass.sendall(pacote_entrega)
+                sock.sendall(pacote)
             except OSError:
-                falhos.append(sock_ass)
+                falhos.append(sock)
 
-        for f in falhos:
-            self._remover_cliente(f)
-
-        self._log(
-            f"[BROKER-MQTT] PUBLISH '{topico}' ({len(mensagem)} bytes) -> {len(destinatarios)} assinante(s)"
-        )
+        for sock in falhos:
+            self._remover_cliente(sock)
 
 
 def _porta_em_uso(host: str, port: int) -> bool:
@@ -367,77 +314,23 @@ def _porta_em_uso(host: str, port: int) -> bool:
         return s.connect_ex((host, port)) == 0
 
 
-def _tentar_mosquitto_portatil(host: str, port: int) -> bool:
-    """Tenta executar `broker/bin/mosquitto.exe` caso presente e funcional."""
-    raiz_tp1 = Path(__file__).resolve().parent.parent
-    binario_mosquitto = raiz_tp1 / "broker" / "bin" / "mosquitto.exe"
-    if not binario_mosquitto.is_file():
-        return False
+def executar_broker(host: str = "127.0.0.1", port: int = config.MQTT_PORT) -> None:
+    """Valida parâmetros, verifica disponibilidade da porta e inicia o broker local."""
+    if not host or not isinstance(host, str):
+        raise ValueError("Host inválido.")
+    if isinstance(port, bool) or not isinstance(port, int) or not (1 <= port <= 65535):
+        raise ValueError(f"Porta inválida: {port}. Deve estar entre 1 e 65535.")
 
-    conf_runtime = raiz_tp1 / "broker" / "mosquitto_runtime.conf"
-    conf_runtime.parent.mkdir(parents=True, exist_ok=True)
-    conf_runtime.write_text(
-        f"listener {port} {host}\nallow_anonymous true\npersistence false\nlog_dest stdout\n",
-        encoding="utf-8",
-    )
-
-    print(f"[BROKER-MQTT] Encontrado Mosquitto portátil: {binario_mosquitto}", flush=True)
-    try:
-        proc = subprocess.Popen([str(binario_mosquitto), "-c", str(conf_runtime), "-v"])
-        proc.wait()
-        return proc.returncode == 0
-    except OSError as exc:
-        print(
-            f"[BROKER-MQTT] Aviso: não foi possível iniciar mosquitto.exe ({exc}). "
-            "Ativando fallback em Python puro...",
-            flush=True,
-        )
-        return False
-
-
-def executar_broker(
-    host: str = "127.0.0.1",
-    port: int = config.MQTT_PORT,
-    forcar_python: bool = False,
-) -> None:
-    """Ponto de entrada principal para subir o broker MQTT local."""
     if _porta_em_uso(host, port):
-        print(
-            f"[BROKER-MQTT] Porta {host}:{port} já possui um Broker MQTT ativo. Mantendo terminal aberto...",
-            flush=True,
-        )
-        try:
-            threading.Event().wait()
-        except KeyboardInterrupt:
-            return
-
-    if not forcar_python and _tentar_mosquitto_portatil(host, port):
+        print(f"[BROKER-MQTT] Porta {port} já está em uso em {host}. Encerrando.")
         return
 
-    broker = BrokerMQTTLocal(host=host, port=port)
-    broker.servir_para_sempre()
+    BrokerMQTTLocal(host=host, port=port).servir_para_sempre()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Broker MQTT v3.1.1 Híbrido (Mosquitto Portátil + Fallback Python Puro)"
-    )
-    parser.add_argument(
-        "--host",
-        type=str,
-        default="127.0.0.1",
-        help="Endereço IP de bind (padrão: 127.0.0.1)",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=config.MQTT_PORT,
-        help=f"Porta TCP do broker (padrão: {config.MQTT_PORT})",
-    )
-    parser.add_argument(
-        "--python-only",
-        action="store_true",
-        help="Força o uso do broker em Python puro mesmo que mosquitto.exe exista",
-    )
+    parser = argparse.ArgumentParser(description="Broker MQTT v3.1.1 Local (Python Puro)")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="IP de bind (padrão: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=config.MQTT_PORT, help=f"Porta TCP (padrão: {config.MQTT_PORT})")
     args = parser.parse_args()
-    executar_broker(host=args.host, port=args.port, forcar_python=args.python_only)
+    executar_broker(host=args.host, port=args.port)
