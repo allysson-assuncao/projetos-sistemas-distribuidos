@@ -6,7 +6,7 @@ limiares de acionamento e parâmetros de eleição e consenso.
 """
 
 # Configuração do Broker MQTT v3.1.1 (camada IoT: sensores <-> controladores <-> atuador)
-MQTT_HOST = "localhost"
+MQTT_HOST = "127.0.0.1"
 MQTT_PORT = 1883
 MQTT_KEEPALIVE = 60
 
@@ -21,9 +21,9 @@ TOPIC_STATUS_EXAUSTOR = "estufa/status/exaustor"
 # Topologia do cluster distribuído (Middleware lógico embarcado via XML-RPC direto).
 # O 'rank' define a prioridade na eleição de líder pelo algoritmo Bully (1 < 2 < 3).
 MAPA_CONTROLADORES = {
-    1: {"id": "ctrl_1", "rank": 1, "host": "localhost", "port": 8001, "data_file": "data_ctrl_1.json"},
-    2: {"id": "ctrl_2", "rank": 2, "host": "localhost", "port": 8002, "data_file": "data_ctrl_2.json"},
-    3: {"id": "ctrl_3", "rank": 3, "host": "localhost", "port": 8003, "data_file": "data_ctrl_3.json"},
+    1: {"id": "ctrl_1", "rank": 1, "host": "127.0.0.1", "port": 8001, "data_file": "data_ctrl_1.json"},
+    2: {"id": "ctrl_2", "rank": 2, "host": "127.0.0.1", "port": 8002, "data_file": "data_ctrl_2.json"},
+    3: {"id": "ctrl_3", "rank": 3, "host": "127.0.0.1", "port": 8003, "data_file": "data_ctrl_3.json"},
 }
 
 CONTROLADORES = [

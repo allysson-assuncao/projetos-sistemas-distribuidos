@@ -60,7 +60,7 @@ def _normalizar_lista_controladores(controladores: list | None) -> list[dict]:
             normalizados.append({
                 "id": item.get("id", base.get("id", f"ctrl_{idx}")),
                 "rank": int(item.get("rank", base.get("rank", idx))),
-                "host": item.get("host", "localhost"),
+                "host": item.get("host", "127.0.0.1"),
                 "port": port,
             })
         else:

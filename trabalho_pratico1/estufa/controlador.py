@@ -107,7 +107,7 @@ class Controlador:
         ctrl_id: str | int,
         port: int | None = None,
         data_file: str | None = None,
-        host: str = "localhost",
+        host: str = "127.0.0.1",
         byzantino: bool = False,
         pares: list[dict] | None = None,
         timeout_rpc: float = config.TIMEOUT_RPC_SEGUNDOS,
@@ -147,7 +147,8 @@ class Controlador:
         self._server: SimpleXMLRPCServer | None = None
 
         self._estado = self._carregar_estado()
-        self.lider_id: str | None = self._estado.get("lider_id")
+        # No boot/reconexão, o líder ativo deve ser descoberto no cluster (não assumido do disco antigo)
+        self.lider_id: str | None = None
 
     def eh_lider(self) -> bool:
         """Indica se este controlador é o líder atual do cluster."""
@@ -226,13 +227,26 @@ class Controlador:
 
         return {"aceito": False, "id": self.ctrl_id, "rank": self.rank}
 
+    def _obter_rank_id(self, ctrl_id: str) -> int:
+        try:
+            return int(config.obter_config_controlador(ctrl_id)["rank"])
+        except ValueError:
+            digs = "".join(ch for ch in str(ctrl_id) if ch.isdigit())
+            return int(digs) if digs else 0
+
     def anunciar_lider(self, novo_lider_id: str) -> dict:
         """Registra o novo líder eleito pelo algoritmo Bully."""
         if not isinstance(novo_lider_id, str) or not novo_lider_id.strip():
             raise ValueError("novo_lider_id inválido.")
 
+        lider_limpo = novo_lider_id.strip()
+        if self._obter_rank_id(lider_limpo) < self.rank:
+            # Nó de rank superior nunca aceita líder de rank inferior; dispara nova eleição Bully
+            threading.Thread(target=self.realizar_eleicao, daemon=True).start()
+            return {"ok": False, "id": self.ctrl_id, "lider_id": self.ctrl_id}
+
         with self._lock:
-            self.lider_id = novo_lider_id.strip()
+            self.lider_id = lider_limpo
             self._estado["lider_id"] = self.lider_id
             self._salvar_estado()
 
@@ -285,20 +299,24 @@ class Controlador:
                     self.lider_id = self.ctrl_id
                     self._estado["lider_id"] = self.ctrl_id
                     self._salvar_estado()
+                    estado_para_replicar = dict(self._estado)
 
                 print(f"[ELEICAO] [{self.ctrl_id}] Assumiu a LIDERANÇA (rank={self.rank}).")
 
                 if pares:
+                    def _notificar_par(par: dict) -> None:
+                        proxy = self._criar_proxy_par(par)
+                        proxy.anunciar_lider(self.ctrl_id)
+                        if (
+                            not self.byzantino
+                            and estado_para_replicar.get("ultima_atualizacao") is not None
+                        ):
+                            proxy.commit_estado(estado_para_replicar)
+
                     executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(pares))
-                    futuros_anuncio = [
-                        executor.submit(
-                            lambda p: self._criar_proxy_par(p).anunciar_lider(self.ctrl_id),
-                            par,
-                        )
-                        for par in pares
-                    ]
+                    futuros_anuncio = [executor.submit(_notificar_par, par) for par in pares]
                     try:
-                        concurrent.futures.wait(futuros_anuncio, timeout=self._timeout_rpc + 0.2)
+                        concurrent.futures.wait(futuros_anuncio, timeout=self._timeout_rpc + 0.3)
                     finally:
                         executor.shutdown(wait=False, cancel_futures=True)
                 return self.ctrl_id
@@ -410,19 +428,36 @@ class Controlador:
             print(f"[SYNC] [{self.ctrl_id}] Nenhum par ativo no momento; mantendo estado local.")
             return False
 
+        inicializados = [
+            (pid, est)
+            for pid, est in respostas
+            if not (
+                est.get("ultima_atualizacao") is None
+                and est.get("temperatura") is None
+                and est.get("umidade") is None
+            )
+        ]
+        candidatos = inicializados if inicializados else respostas
+
         try:
-            oficial = ClusterMiddleware.calcular_consenso([est for _, est in respostas])
+            oficial = ClusterMiddleware.calcular_consenso([est for _, est in candidatos])
         except ErroQuorum:
-            # Em caso de empate (ex: 1 honesto + 1 bizantino online), prioriza o estado do líder conhecido
-            oficial = None
-            if lider_descoberto:
-                for pid, est in respostas:
-                    if pid == lider_descoberto:
-                        oficial = est
-                        break
-            if oficial is None:
+            # Em empate (ex: reconexão com estado desatualizado ou 1 bizantino), prioriza líder ativo e timestamp mais recente
+            validos = [
+                (pid, est)
+                for pid, est in candidatos
+                if _validar_limites_sensor(est.get("temperatura"), est.get("umidade"))
+            ]
+            if not validos:
                 print(f"[SYNC] [{self.ctrl_id}] Divergência entre pares na sincronização; aguardando consenso.")
                 return False
+            _, oficial = max(
+                validos,
+                key=lambda item: (
+                    1 if item[0] == item[1].get("lider_id") else 0,
+                    str(item[1].get("ultima_atualizacao") or ""),
+                ),
+            )
 
         if not _validar_limites_sensor(oficial.get("temperatura"), oficial.get("umidade")):
             print(f"[SYNC] [{self.ctrl_id}] Estado descartado por limites inválidos.")
@@ -725,7 +760,11 @@ class Controlador:
             par_lider = self._encontrar_par(lider_atual)
             if par_lider is not None:
                 try:
-                    proxy = self._criar_proxy_par(par_lider)
+                    proxy = criar_proxy_rpc(
+                        par_lider["host"],
+                        int(par_lider["port"]),
+                        timeout=self._timeout_rpc * 2.5,
+                    )
                     metodo = "comandar_bomba" if alvo == "bomba" else "comandar_exaustor"
                     return getattr(proxy, metodo)(ligar)
                 except (
@@ -742,7 +781,11 @@ class Controlador:
             if novo_lider != self.ctrl_id:
                 par_novo = self._encontrar_par(novo_lider)
                 if par_novo is not None:
-                    proxy = self._criar_proxy_par(par_novo)
+                    proxy = criar_proxy_rpc(
+                        par_novo["host"],
+                        int(par_novo["port"]),
+                        timeout=self._timeout_rpc * 2.5,
+                    )
                     metodo = "comandar_bomba" if alvo == "bomba" else "comandar_exaustor"
                     return getattr(proxy, metodo)(ligar)
 
@@ -787,7 +830,7 @@ class Controlador:
     # ------------------------------------------------------------------
 
     def iniciar_servidor_rpc(self) -> None:
-        """Inicia apenas o servidor XML-RPC e a eleição/heartbeat (útil em testes reais)."""
+        """Sobe servidor XML-RPC, sincroniza estado com pares ativos e inicia eleição/heartbeat."""
         self._parar_evento.clear()
         self._server = _ThreadedXMLRPCServer(
             (self.host, self.port),
@@ -850,7 +893,7 @@ if __name__ == "__main__":
     parser.add_argument("--id", help="Identificador opcional (ex: ctrl_1)")
     parser.add_argument("--port", type=int, help="Porta XML-RPC opcional")
     parser.add_argument("--data", help="Arquivo JSON opcional")
-    parser.add_argument("--host", default="localhost", help="Host do servidor XML-RPC")
+    parser.add_argument("--host", default="127.0.0.1", help="Host do servidor XML-RPC")
     parser.add_argument("--byzantino", action="store_true", help="Ativa simulação de falha bizantina")
     args = parser.parse_args()
 

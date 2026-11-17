@@ -1,329 +1,114 @@
 {
   "version": "2.0.0",
   "options": {
-    "cwd": "${workspaceFolder}",
     "shell": {
-      "executable": "powershell.exe",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command"
-      ]
+      "executable": "powershell.exe"
     }
   },
   "tasks": [
     {
-      "label": "🚀 [DEMO] 1. Subir Todo o Sistema (Estufa TP1)",
-      "dependsOn": [
-        "1. Broker MQTT (:1883)",
-        "2. Middleware XML-RPC (:9000)",
-        "3. Controlador ctrl_1 (:8001)",
-        "4. Controlador ctrl_2 (:8002)",
-        "5. Controlador ctrl_3 (:8003)",
-        "6. Atuador (Cache LRU)",
-        "7. Sensor (Modo Normal)",
-        "8. Cliente Interativo"
-      ],
-      "dependsOrder": "parallel",
-      "problemMatcher": [],
-      "detail": "Abre todos os 8 terminais divididos (Split Screen) usando PowerShell na ordem de dependência."
-    },
-    {
       "label": "1. Broker MQTT (:1883)",
       "type": "shell",
-      "command": "& '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.broker_local",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
+      "command": "& '${workspaceFolder}\\.venv\\Scripts\\python.exe' -u -m estufa.broker_local",
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "1_infra",
-        "clear": true
-      }
+      "presentation": { "group": "1_infra", "panel": "dedicated", "reveal": "always" },
+      "problemMatcher": []
     },
     {
-      "label": "2. Middleware XML-RPC (:9000)",
+      "label": "2. Controlador 1 (:8001)",
       "type": "shell",
-      "command": "Start-Sleep -Milliseconds 400; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.middleware_server",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
+      "command": "Start-Sleep -Milliseconds 600; & '${workspaceFolder}\\.venv\\Scripts\\python.exe' -u -m estufa.controlador 1",
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "1_infra",
-        "clear": true
-      }
+      "presentation": { "group": "2_cluster", "panel": "dedicated", "reveal": "always" },
+      "problemMatcher": []
     },
     {
-      "label": "3. Controlador ctrl_1 (:8001)",
+      "label": "3. Controlador 2 (:8002)",
       "type": "shell",
-      "command": "Start-Sleep -Milliseconds 1000; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.controlador --id ctrl_1 --port 8001 --data data_ctrl_1.json",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
+      "command": "Start-Sleep -Milliseconds 900; & '${workspaceFolder}\\.venv\\Scripts\\python.exe' -u -m estufa.controlador 2",
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "2_replicas",
-        "clear": true
-      }
+      "presentation": { "group": "2_cluster", "panel": "dedicated", "reveal": "always" },
+      "problemMatcher": []
     },
     {
-      "label": "4. Controlador ctrl_2 (:8002)",
+      "label": "4. Controlador 3 (:8003)",
       "type": "shell",
-      "command": "Start-Sleep -Milliseconds 1100; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
+      "command": "Start-Sleep -Milliseconds 1200; & '${workspaceFolder}\\.venv\\Scripts\\python.exe' -u -m estufa.controlador 3",
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "2_replicas",
-        "clear": true
-      }
+      "presentation": { "group": "2_cluster", "panel": "dedicated", "reveal": "always" },
+      "problemMatcher": []
     },
     {
-      "label": "5. Controlador ctrl_3 (:8003)",
+      "label": "5. Atuador MQTT",
       "type": "shell",
-      "command": "Start-Sleep -Milliseconds 1200; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
+      "command": "Start-Sleep -Milliseconds 1500; & '${workspaceFolder}\\.venv\\Scripts\\python.exe' -u -m estufa.atuador",
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "2_replicas",
-        "clear": true
-      }
+      "presentation": { "group": "3_io", "panel": "dedicated", "reveal": "always" },
+      "problemMatcher": []
     },
     {
-      "label": "6. Atuador (Cache LRU)",
+      "label": "6. Sensor Contínuo",
       "type": "shell",
-      "command": "Start-Sleep -Milliseconds 1600; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.atuador",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
+      "command": "Start-Sleep -Milliseconds 1800; & '${workspaceFolder}\\.venv\\Scripts\\python.exe' -u -m estufa.sensor",
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "3_io",
-        "clear": true
-      }
+      "presentation": { "group": "3_io", "panel": "dedicated", "reveal": "always" },
+      "problemMatcher": []
     },
     {
-      "label": "7. Sensor (Modo Normal)",
+      "label": "7. Cliente Interativo (RPC Direto)",
       "type": "shell",
-      "command": "Start-Sleep -Milliseconds 2000; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.sensor --modo normal",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
+      "command": "Start-Sleep -Milliseconds 2100; & '${workspaceFolder}\\.venv\\Scripts\\python.exe' -u -m estufa.cliente",
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "3_io",
-        "clear": true
-      }
+      "presentation": { "group": "4_cliente", "panel": "dedicated", "reveal": "always", "focus": true },
+      "problemMatcher": []
     },
     {
-      "label": "8. Cliente Interativo",
+      "label": "Subir Todo o Sistema (Estufa TP1 - 7 Terminais)",
+      "dependsOrder": "parallel",
+      "dependsOn": [
+        "1. Broker MQTT (:1883)",
+        "2. Controlador 1 (:8001)",
+        "3. Controlador 2 (:8002)",
+        "4. Controlador 3 (:8003)",
+        "5. Atuador MQTT",
+        "6. Sensor Contínuo",
+        "7. Cliente Interativo (RPC Direto)"
+      ],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Controlador 2 (Modo Bizantino)",
       "type": "shell",
-      "command": "Start-Sleep -Milliseconds 2300; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.cliente",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
+      "command": "& '${workspaceFolder}\\.venv\\Scripts\\python.exe' -u -m estufa.controlador 2 --byzantino",
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "focus": true,
-        "panel": "new",
-        "group": "4_cliente",
-        "clear": true
-      }
+      "presentation": { "panel": "new", "reveal": "always", "focus": true },
+      "problemMatcher": []
     },
     {
-      "label": "🔥 [ETAPA 3] Sensor: Modo Seco (Disparar Bomba + Deduplicação LRU)",
+      "label": "Resetar Ambiente (Portas e JSONs)",
       "type": "shell",
-      "command": "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'estufa\\.sensor' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 300; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.sensor --modo seco",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
-      "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "3_io",
-        "clear": true
-      }
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File '${workspaceFolder}\\scripts\\reset_demo.ps1'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
     },
     {
-      "label": "🌡️ [ETAPA 3B] Sensor: Modo Quente (Disparar Exaustor + Deduplicação LRU)",
+      "label": "Validar Testes Unitarios + E2E",
       "type": "shell",
-      "command": "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'estufa\\.sensor' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 300; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.sensor --modo quente",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
-      "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "3_io",
-        "clear": true
-      }
-    },
-    {
-      "label": "💥 [ETAPA 4] Derrubar Ctrl 3 (Simular Falha por Parada / Crash)",
-      "type": "shell",
-      "command": "Get-NetTCPConnection -LocalPort 8003 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Write-Host '[ETAPA 4] Controlador ctrl_3 (porta 8003) encerrado para teste de Quórum 2/3!' -ForegroundColor Yellow",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared",
-        "clear": true
-      }
-    },
-    {
-      "label": "🔄 [ETAPA 5] Recuperar Ctrl 3 (State Sync via Middleware)",
-      "type": "shell",
-      "command": "Get-NetTCPConnection -LocalPort 8003 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 300; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
-      "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "2_replicas",
-        "clear": true
-      }
-    },
-    {
-      "label": "🎭 [ETAPA 6] Reiniciar Ctrl 2 em Modo Bizantino (--byzantino)",
-      "type": "shell",
-      "command": "Get-NetTCPConnection -LocalPort 8002 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 300; & '${workspaceFolder}/.venv/Scripts/python.exe' -u -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json --byzantino",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
-      "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "new",
-        "group": "2_replicas",
-        "clear": true
-      }
-    },
-    {
-      "label": "🧹 [RESET] Parar Serviços e Limpar Estado (data_ctrl_*.json)",
-      "type": "shell",
-      "command": "& '${workspaceFolder}/scripts/reset_demo.ps1'",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared",
-        "clear": true
-      }
-    },
-    {
-      "label": "✅ [VALIDAÇÃO] Rodar Testes Unitários (Pytest) + Smoke Test E2E",
-      "type": "shell",
-      "command": "& '${workspaceFolder}/.venv/Scripts/pytest.exe' tests/ -v -p no:cacheprovider; if ($LASTEXITCODE -eq 0) { & '${workspaceFolder}/.venv/Scripts/python.exe' scripts/validate_e2e.py }",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "shell": {
-          "executable": "powershell.exe",
-          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-        }
-      },
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "focus": true,
-        "panel": "shared",
-        "clear": true
-      }
+      "command": "& '${workspaceFolder}\\.venv\\Scripts\\pytest.exe' '${workspaceFolder}\\tests' -v -p no:cacheprovider; if ($LASTEXITCODE -eq 0) { & '${workspaceFolder}\\.venv\\Scripts\\python.exe' '${workspaceFolder}\\scripts\\validate_e2e.py' }",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
     }
   ]
 }

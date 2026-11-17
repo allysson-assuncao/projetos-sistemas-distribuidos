@@ -7,17 +7,17 @@ Write-Host "============================================================" -Foreg
 
 # 1. Encerrar processos Python que estejam rodando módulos 'estufa.'
 try {
-    $procs = Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'mosquitto.exe'"
+    $procs = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'"
     foreach ($p in $procs) {
-        if ($p.CommandLine -match "estufa\." -or $p.Name -eq "mosquitto.exe") {
-            Write-Host " -> Encerrando processo $($p.Name) (PID $($p.ProcessId)): $($p.CommandLine)" -ForegroundColor Yellow
+        if ($p.CommandLine -match "estufa\.") {
+            Write-Host " -> Encerrando Python (PID $($p.ProcessId)): $($p.CommandLine)" -ForegroundColor Yellow
             Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
         }
     }
 } catch {}
 
-# 2. Garantir liberação das portas 1883, 8001, 8002, 8003, 9000
-$portas = @(1883, 8001, 8002, 8003, 9000)
+# 2. Garantir liberação das portas do projeto (1883, 8001, 8002, 8003)
+$portas = @(1883, 8001, 8002, 8003)
 foreach ($porta in $portas) {
     $conns = Get-NetTCPConnection -LocalPort $porta -State Listen -ErrorAction SilentlyContinue
     foreach ($c in $conns) {
@@ -30,18 +30,11 @@ foreach ($porta in $portas) {
 
 Start-Sleep -Milliseconds 400
 
-# 3. Remover arquivos de persistência de estado (data_ctrl_*.json)
-$arquivosEstado = @(
-    (Join-Path $ROOT "data_ctrl_1.json"),
-    (Join-Path $ROOT "data_ctrl_2.json"),
-    (Join-Path $ROOT "data_ctrl_3.json")
-)
-foreach ($arq in $arquivosEstado) {
-    if (Test-Path $arq) {
-        Remove-Item $arq -Force -ErrorAction SilentlyContinue
-        Write-Host " -> Estado removido: $(Split-Path -Leaf $arq)" -ForegroundColor Green
-    }
+# 3. Remover bancos locais JSON replicados (data_ctrl_*.json e temporários)
+Get-ChildItem -Path $ROOT -Filter "data_ctrl_*.json*" -ErrorAction SilentlyContinue | ForEach-Object {
+    Remove-Item $_.FullName -Force -ErrorAction Stop
+    Write-Host " -> Estado removido: $($_.Name)" -ForegroundColor Green
 }
 
 Write-Host ""
-Write-Host "[OK] Ambiente limpo e portas (1883, 8001, 8002, 8003, 9000) liberadas!" -ForegroundColor Green
+Write-Host "[OK] Ambiente limpo e portas (1883, 8001, 8002, 8003) liberadas!" -ForegroundColor Green

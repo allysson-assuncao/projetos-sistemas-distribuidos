@@ -1,11 +1,13 @@
 #!/bin/bash
-# start_all.sh — Inicializa os componentes do sistema da estufa agrícola.
-# Ordem de boot: Broker -> Middleware -> Controladores -> Atuador -> Sensor
+# start_all.sh — Inicializa os 7 processos do sistema no Linux (dual boot / Docker opcional).
+# Uso: ./scripts/start_all.sh [TEMP_INICIAL] [UMIDADE_INICIAL] [INTERVALO]
 
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MODO_SENSOR="${1:-normal}"
+TEMP="${1:-28.0}"
+UMIDADE="${2:-42.0}"
+INTERVALO="${3:-2.0}"
 
 if [ -x "$ROOT/.venv/bin/python" ]; then
     PYTHON="$ROOT/.venv/bin/python"
@@ -15,50 +17,45 @@ else
     PYTHON="python"
 fi
 
-echo "Iniciando sistema da estufa agrícola distribuída..."
-echo ""
+PIDS=()
+echo "Iniciando sistema da estufa agrícola distribuída (Linux)..."
 
-echo "[1/6] Verificando Docker..."
-if ! docker info > /dev/null 2>&1; then
-    echo "[ERRO] O serviço Docker não está em execução."
-    exit 1
+if command -v docker > /dev/null 2>&1 && docker info > /dev/null 2>&1; then
+    echo "[1/5] Iniciando broker MQTT via Docker Compose..."
+    cd "$ROOT" && docker compose up -d
+    sleep 1
+else
+    echo "[1/5] Docker indisponível -> iniciando broker_local em Python puro (:1883)..."
+    cd "$ROOT" && "$PYTHON" -u -m estufa.broker_local &
+    PIDS+=($!)
+    sleep 1
 fi
 
-echo "[2/6] Iniciando broker MQTT (Docker)..."
-cd "$ROOT" && docker compose up -d
-sleep 2
-
-echo "[3/6] Iniciando servidor de Middleware (porta 9000)..."
-cd "$ROOT" && "$PYTHON" -m estufa.middleware_server &
-PIDS=($!)
-sleep 1
-
-echo "[4/6] Iniciando controladores (3 réplicas)..."
-cd "$ROOT" && "$PYTHON" -m estufa.controlador --id ctrl_1 --port 8001 --data data_ctrl_1.json &
+echo "[2/5] Iniciando controladores (1, 2 e 3)..."
+cd "$ROOT" && "$PYTHON" -u -m estufa.controlador 1 &
 PIDS+=($!)
-sleep 0.5
-cd "$ROOT" && "$PYTHON" -m estufa.controlador --id ctrl_2 --port 8002 --data data_ctrl_2.json &
+sleep 0.3
+cd "$ROOT" && "$PYTHON" -u -m estufa.controlador 2 &
 PIDS+=($!)
-sleep 0.5
-cd "$ROOT" && "$PYTHON" -m estufa.controlador --id ctrl_3 --port 8003 --data data_ctrl_3.json &
+sleep 0.3
+cd "$ROOT" && "$PYTHON" -u -m estufa.controlador 3 &
 PIDS+=($!)
 sleep 1
 
-echo "[5/6] Iniciando atuador..."
-cd "$ROOT" && "$PYTHON" -m estufa.atuador &
+echo "[3/5] Iniciando atuador MQTT..."
+cd "$ROOT" && "$PYTHON" -u -m estufa.atuador &
 PIDS+=($!)
-sleep 0.5
+sleep 0.4
 
-echo "[6/6] Iniciando sensor (modo: $MODO_SENSOR)..."
-cd "$ROOT" && "$PYTHON" -m estufa.sensor --modo "$MODO_SENSOR" &
+echo "[4/5] Iniciando sensor contínuo (temp=$TEMP, umidade=$UMIDADE, intervalo=$INTERVALO)..."
+cd "$ROOT" && "$PYTHON" -u -m estufa.sensor --temp "$TEMP" --umidade "$UMIDADE" --intervalo "$INTERVALO" &
 PIDS+=($!)
 
 echo ""
-echo "Sistema inicializado. PIDs: ${PIDS[*]}"
-echo ""
-echo "Para iniciar o cliente:"
+echo "[5/5] Sistema ativo. PIDs em background: ${PIDS[*]}"
+echo "Para iniciar o cliente interativo:"
 echo "    $PYTHON -m estufa.cliente"
 echo ""
 echo "Para encerrar todos os processos:"
-echo "    kill ${PIDS[*]}"
-echo "    docker compose down"
+echo "    kill ${PIDS[*]} 2>/dev/null || true"
+echo "    docker compose down 2>/dev/null || true"
