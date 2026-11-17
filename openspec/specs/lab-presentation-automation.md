@@ -1,7 +1,7 @@
 ---
 id: "lab-presentation-automation"
 title: "TP1 Lab Presentation Environment & Multi-Terminal Automation"
-version: "1.0.0"
+version: "1.1.0"
 status: "active"
 owners:
   - "@anybo"
@@ -29,7 +29,7 @@ Provides a self-contained, zero-admin, Docker-free execution and validation laye
 
 ## Functional Requirements
 
-- **[RF-01]** `estufa.broker_local` MUST provide an MQTT v3.1.1 broker on `127.0.0.1:1883` without requiring Docker or Windows Administrator privileges, supporting `CONNECT/CONNACK`, `SUBSCRIBE/SUBACK`, `PUBLISH/PUBACK` (`QoS 0` and `QoS 1`), `PINGREQ/PINGRESP`, and `DISCONNECT`.
+- **[RF-01]** `estufa.broker_local` MUST provide a pure-Python MQTT v3.1.1 broker on `127.0.0.1:1883` without requiring Docker, Windows Administrator privileges, or external `mosquitto.exe` binaries, supporting `CONNECT/CONNACK`, `SUBSCRIBE/SUBACK`, `PUBLISH/PUBACK` (`QoS 0` and `QoS 1`), `PINGREQ/PINGRESP`, and `DISCONNECT`, and exiting cleanly with a diagnostic message if the target port is already in use.
 - **[RF-02]** `.vscode/tasks.json` and `trabalho_pratico1/.vscode/tasks.json` MUST define background tasks grouped into split terminal panes (`1_infra`, `2_replicas`, `3_io`, `4_cliente`) and a compound task `🚀 [DEMO] 1. Subir Todo o Sistema (Estufa TP1)`.
 - **[RF-03]** `scripts/validate_e2e.py` MUST verify all 7 stages of `roteiro_apresentacao.md` against real subprocesses and remove temporary `data_ctrl_*.json` files upon completion.
 
@@ -47,3 +47,4 @@ Provides a self-contained, zero-admin, Docker-free execution and validation laye
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-11-12 | @anybo | Initial specification for lab presentation readiness |
+| 1.1.0 | 2026-11-17 | @anybo | Streamlined pure-Python broker_local (simplify-components-and-tests) |
