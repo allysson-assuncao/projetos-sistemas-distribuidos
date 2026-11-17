@@ -6,30 +6,69 @@
 
 ## 1. Inicialização dos Terminais
 
-No diretório `trabalho_pratico1/`:
+Todos os comandos abaixo devem ser executados a partir do diretório `trabalho_pratico1/`:
+
+```bash
+cd trabalho_pratico1
+```
+
+### 1.1 Opção A — Automática (6 Janelas Independentes + Cliente)
 
 ```powershell
 # 1. Limpar processos antigos e bancos JSON residuais
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/reset_demo.ps1
 
-# 2. Subir os 6 serviços em janelas independentes
+# 2. Subir os 6 serviços em janelas separadas
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start_all.ps1
 
-# 3. No terminal principal, abrir o Cliente CLI (7º processo)
+# 3. No terminal principal, iniciar o Cliente CLI (7º processo)
 ./.venv/Scripts/python.exe -m estufa.cliente
 ```
 
-**Comandos individuais por processo:**
+### 1.2 Opção B — Manual Agrupada nos Terminais Integrados do VS Code
 
-| Processo | Comando |
-|---|---|
-| Broker MQTT (`:1883`) | `./.venv/Scripts/python.exe -u -m estufa.broker_local` |
-| Controlador 1 (`:8001`) | `./.venv/Scripts/python.exe -u -m estufa.controlador 1` |
-| Controlador 2 (`:8002`) | `./.venv/Scripts/python.exe -u -m estufa.controlador 2` |
-| Controlador 3 (`:8003`) | `./.venv/Scripts/python.exe -u -m estufa.controlador 3` |
-| Atuador MQTT | `./.venv/Scripts/python.exe -u -m estufa.atuador` |
-| Sensor Contínuo | `./.venv/Scripts/python.exe -u -m estufa.sensor --temp 28 --umidade 42 --intervalo 2` |
-| Cliente CLI | `./.venv/Scripts/python.exe -m estufa.cliente` |
+Para organizar os terminais em grupos divididos (*Split Terminal* — `Ctrl+Shift+5`) dentro do próprio VS Code (ou via `Ctrl+Shift+B` → **Subir Todo o Sistema (Estufa TP1 - 7 Terminais)**):
+
+#### Grupo 1 — Infraestrutura e Camada IoT (3 divisões lado a lado)
+
+**Terminal 1 — Broker MQTT (`:1883`):**
+```bash
+./.venv/Scripts/python.exe -u -m estufa.broker_local
+```
+
+**Terminal 2 — Atuador (Bomba / Exaustor):**
+```bash
+./.venv/Scripts/python.exe -u -m estufa.atuador
+```
+
+**Terminal 3 — Sensor Contínuo:**
+```bash
+./.venv/Scripts/python.exe -u -m estufa.sensor --temp 28 --umidade 42 --intervalo 2
+```
+
+#### Grupo 2 — Cluster de Controladores (3 divisões lado a lado)
+
+**Terminal 4 — Controlador 1 (`:8001` | `rank=1`):**
+```bash
+./.venv/Scripts/python.exe -u -m estufa.controlador 1
+```
+
+**Terminal 5 — Controlador 2 (`:8002` | `rank=2`):**
+```bash
+./.venv/Scripts/python.exe -u -m estufa.controlador 2
+```
+
+**Terminal 6 — Controlador 3 (`:8003` | `rank=3` | Líder padrão):**
+```bash
+./.venv/Scripts/python.exe -u -m estufa.controlador 3
+```
+
+#### Grupo 3 — Interação e Monitoramento
+
+**Terminal 7 — Cliente CLI (RPC Direto):**
+```bash
+./.venv/Scripts/python.exe -m estufa.cliente
+```
 
 ---
 
