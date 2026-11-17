@@ -1,8 +1,8 @@
 """
 config.py — Parâmetros globais do sistema de controle da estufa agrícola.
 
-Centraliza tópicos MQTT, endereços XML-RPC, limiares de acionamento e
-configurações de votação e deduplicação.
+Centraliza tópicos MQTT, topologia do cluster XML-RPC de controladores,
+limiares de acionamento e parâmetros de eleição e consenso.
 """
 
 # Broker MQTT
@@ -18,16 +18,43 @@ TOPIC_ATUADOR_EXAUSTOR = "estufa/atuadores/exaustor"
 TOPIC_STATUS_BOMBA = "estufa/status/bomba"
 TOPIC_STATUS_EXAUSTOR = "estufa/status/exaustor"
 
-# Réplicas de controladores (cluster XML-RPC interno)
+# Topologia do cluster de controladores (Middleware lógico distribuído via XML-RPC)
+MAPA_CONTROLADORES = {
+    1: {"id": "ctrl_1", "rank": 1, "host": "localhost", "port": 8001, "data_file": "data_ctrl_1.json"},
+    2: {"id": "ctrl_2", "rank": 2, "host": "localhost", "port": 8002, "data_file": "data_ctrl_2.json"},
+    3: {"id": "ctrl_3", "rank": 3, "host": "localhost", "port": 8003, "data_file": "data_ctrl_3.json"},
+}
+
 CONTROLADORES = [
-    {"id": "ctrl_1", "host": "localhost", "port": 8001, "data_file": "data_ctrl_1.json"},
-    {"id": "ctrl_2", "host": "localhost", "port": 8002, "data_file": "data_ctrl_2.json"},
-    {"id": "ctrl_3", "host": "localhost", "port": 8003, "data_file": "data_ctrl_3.json"},
+    (cfg["host"], cfg["port"]) for cfg in MAPA_CONTROLADORES.values()
 ]
 
-# Servidor de Middleware XML-RPC (ponto único de entrada para clientes)
-MIDDLEWARE_HOST = "localhost"
-MIDDLEWARE_PORT = 9000
+
+def obter_config_controlador(identificador: str | int) -> dict:
+    """
+    Resolve a configuração de um controlador pelo número (1..3) ou ID ('ctrl_1'..'ctrl_3').
+    """
+    if isinstance(identificador, bool):
+        raise ValueError(f"Identificador de controlador inválido: {identificador}")
+
+    if isinstance(identificador, int):
+        chave = identificador
+    elif isinstance(identificador, str):
+        texto = identificador.strip().lower()
+        if texto.isdigit():
+            chave = int(texto)
+        elif texto.startswith("ctrl_") and texto[5:].isdigit():
+            chave = int(texto[5:])
+        else:
+            raise ValueError(f"Identificador de controlador inválido: '{identificador}'")
+    else:
+        raise ValueError(f"Identificador de controlador inválido: {identificador!r}")
+
+    if chave not in MAPA_CONTROLADORES:
+        raise ValueError(f"Controlador '{identificador}' fora do mapa permitido (1..3).")
+
+    return dict(MAPA_CONTROLADORES[chave])
+
 
 # Limiares de controle ambiental (com histerese)
 TEMP_MAX_CELSIUS = 35.0      # Acima: liga o exaustor
@@ -35,9 +62,10 @@ TEMP_MIN_CELSIUS = 15.0      # Abaixo: desliga o exaustor
 UMIDADE_MIN_PERCENT = 30.0   # Abaixo: liga a bomba de irrigação
 UMIDADE_MAX_PERCENT = 70.0   # Acima: desliga a bomba de irrigação
 
-# Parâmetros de votação do Middleware
-TIMEOUT_RPC_SEGUNDOS = 3
+# Parâmetros de comunicação RPC, heartbeat e consenso
+TIMEOUT_RPC_SEGUNDOS = 1.5
+INTERVALO_HEARTBEAT_SEGUNDOS = 2.0
 QUORUM_MINIMO = 2
 
-# Capacidade do cache LRU de deduplicação no atuador
+# Mantido temporariamente até simplificação do atuador na próxima etapa
 DEDUP_CACHE_SIZE = 50
