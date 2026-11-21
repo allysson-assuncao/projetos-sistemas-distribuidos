@@ -7,7 +7,6 @@ e apuração de quórum entre as réplicas do cluster).
 """
 
 import collections
-import concurrent.futures
 import json
 import socket
 import xmlrpc.client
@@ -54,25 +53,15 @@ def _normalizar_lista_controladores(controladores: list | None) -> list[dict]:
 
     normalizados = []
     for idx, item in enumerate(itens, start=1):
-        if isinstance(item, dict):
-            port = int(item["port"])
-            base = mapa_por_porta.get(port, {})
-            normalizados.append({
-                "id": item.get("id", base.get("id", f"ctrl_{idx}")),
-                "rank": int(item.get("rank", base.get("rank", idx))),
-                "host": item.get("host", "127.0.0.1"),
-                "port": port,
-            })
-        else:
-            host, port = item
-            port = int(port)
-            base = mapa_por_porta.get(port, {})
-            normalizados.append({
-                "id": base.get("id", f"ctrl_{idx}"),
-                "rank": int(base.get("rank", idx)),
-                "host": host,
-                "port": port,
-            })
+        dados = item if isinstance(item, dict) else {"host": item[0], "port": item[1]}
+        port = int(dados["port"])
+        base = mapa_por_porta.get(port, {})
+        normalizados.append({
+            "id": dados.get("id", base.get("id", f"ctrl_{idx}")),
+            "rank": int(dados.get("rank", base.get("rank", idx))),
+            "host": dados.get("host", "127.0.0.1"),
+            "port": port,
+        })
     return normalizados
 
 
@@ -116,30 +105,17 @@ class ClusterMiddleware:
         if not isinstance(estado, dict):
             return str(estado)
 
-        chaves_dominio = ("temperatura", "umidade", "bomba_ligada", "exaustor_ligado")
-        if any(k in estado for k in chaves_dominio):
-            canonico = {
-                "temperatura": estado.get("temperatura"),
-                "umidade": estado.get("umidade"),
-                "bomba_ligada": bool(estado.get("bomba_ligada", False)),
-                "exaustor_ligado": bool(estado.get("exaustor_ligado", False)),
-            }
-            return json.dumps(canonico, sort_keys=True)
-
-        copia = {
-            k: v
-            for k, v in estado.items()
-            if k not in ("ultima_atualizacao", "controlador_id", "lider_id", "byzantino")
+        canonico = {
+            "temperatura": estado.get("temperatura"),
+            "umidade": estado.get("umidade"),
+            "bomba_ligada": bool(estado.get("bomba_ligada", False)),
+            "exaustor_ligado": bool(estado.get("exaustor_ligado", False)),
         }
-        return json.dumps(copia, sort_keys=True)
+        return json.dumps(canonico, sort_keys=True)
 
     # Consenso dinâmico: 3 nós (maioria 2/3 mascara 1 bizantino), 2 nós (2/2), 1 nó (1/1 degradado)
     @classmethod
-    def calcular_consenso(
-        cls,
-        respostas: list[dict],
-        total_ativos: int | None = None,
-    ) -> dict:
+    def calcular_consenso(cls, respostas: list[dict]) -> dict:
         """
         Aplica quórum dinâmico sobre as respostas recebidas dos nós ativos:
         - 3 ativos: maioria (>= 2 votos) mascara 1 nó bizantino.
@@ -152,11 +128,11 @@ class ClusterMiddleware:
 
         contagem = collections.Counter(cls._normalizar_estado(r) for r in respostas)
         chave_vencedora, votos = contagem.most_common(1)[0]
-        n_respostas = len(respostas) if total_ativos is None else max(len(respostas), total_ativos)
+        n_respostas = len(respostas)
 
         if n_respostas >= 3 and votos < 2:
             raise ErroQuorum(
-                f"ERRO_QUORUM: Divergência total entre os {len(respostas)} controladores ativos."
+                f"ERRO_QUORUM: Divergência total entre os {n_respostas} controladores ativos."
             )
         if n_respostas == 2 and votos < 2:
             raise ErroQuorum(
@@ -200,8 +176,7 @@ class ClusterMiddleware:
         for ctrl in self._ordenar_candidatos():
             try:
                 proxy = self._criar_proxy(ctrl)
-                func = getattr(proxy, metodo)
-                resposta = func(*args)
+                resposta = getattr(proxy, metodo)(*args)
                 self._atualizar_lider_cache(resposta)
                 return resposta
             except xmlrpc.client.Fault as e:
@@ -226,34 +201,23 @@ class ClusterMiddleware:
 
         raise ErroQuorum(f"ERRO_QUORUM: Nenhum controlador acessível. Detalhes: {erros}")
 
-    # Consulta paralela a todas as réplicas ativas para validar estado oficial por consenso
+    # Consulta todas as réplicas ativas para validar estado oficial por consenso
     def obter_estado(self) -> dict:
         """
-        Consulta diretamente todos os controladores alcançáveis em paralelo e valida
+        Consulta diretamente todos os controladores alcançáveis e valida
         o estado oficial por consenso dinâmico (mascarando eventuais nós bizantinos).
         """
         if not self._controladores:
             raise ErroQuorum("ERRO_QUORUM: Nenhum controlador configurado.")
 
         respostas: list[dict] = []
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(self._controladores))
-        futures = {
-            executor.submit(lambda c: self._criar_proxy(c).obter_estado(), ctrl): ctrl
-            for ctrl in self._controladores
-        }
-        try:
-            for future in concurrent.futures.as_completed(futures, timeout=self._timeout + 0.3):
-                ctrl = futures[future]
-                try:
-                    resp = future.result(timeout=0.1)
-                    if isinstance(resp, dict):
-                        respostas.append(resp)
-                except Exception as e:
-                    print(f"[MIDDLEWARE] {ctrl['id']} indisponível na leitura: {e}")
-        except (concurrent.futures.TimeoutError, TimeoutError):
-            print("[MIDDLEWARE] Timeout aguardando réplicas lentas na consulta de estado.")
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+        for ctrl in self._controladores:
+            try:
+                resp = self._criar_proxy(ctrl).obter_estado()
+                if isinstance(resp, dict):
+                    respostas.append(resp)
+            except Exception as e:
+                print(f"[MIDDLEWARE] {ctrl['id']} indisponível na leitura: {e}")
 
         oficial = self.calcular_consenso(respostas)
         self._atualizar_lider_cache(oficial)
@@ -279,8 +243,7 @@ class ClusterMiddleware:
 
         for ctrl in self._controladores:
             try:
-                proxy = self._criar_proxy(ctrl)
-                resp = proxy.ping()
+                resp = self._criar_proxy(ctrl).ping()
                 ativos += 1
                 if isinstance(resp, dict) and resp.get("status") == "ok":
                     lider_id = resp.get("lider_id")
@@ -288,8 +251,6 @@ class ClusterMiddleware:
                         votos_lider.append(lider_id)
                     papel = "LÍDER" if lider_id == ctrl["id"] else "seguidor"
                     detalhes[ctrl["id"]] = f"ok ({papel})"
-                elif "pong" in str(resp):
-                    detalhes[ctrl["id"]] = "ok"
                 else:
                     detalhes[ctrl["id"]] = f"resposta inesperada: {resp}"
             except Exception as e:

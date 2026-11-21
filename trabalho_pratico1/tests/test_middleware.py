@@ -7,7 +7,6 @@ descoberta e cache de líder, failover automático e quórum dinâmico
 """
 
 import socket
-import time
 from unittest.mock import MagicMock, patch
 import xmlrpc.client
 import pytest
@@ -191,16 +190,13 @@ class TestConsensoEQuorumDinamico:
         assert res_1["exaustor_ligado"] is True
 
     def test_te03_quorum_mantido_quando_uma_replica_trava_timeout(self):
-        """Se 1 réplica trava além do timeout, as 2 restantes ainda fecham consenso."""
+        """Se 1 réplica dá timeout, as 2 restantes ainda fecham consenso."""
         mw_rapido = ClusterMiddleware(controladores=CONTROLADORES_TESTE, timeout=0.2)
 
         def proxy_factory(ctrl):
             m = MagicMock()
             if ctrl["id"] == "ctrl_3":
-                def lento():
-                    time.sleep(1.5)
-                    return _estado(temp=10.0)
-                m.obter_estado.side_effect = lento
+                m.obter_estado.side_effect = socket.timeout("timeout")
             else:
                 m.obter_estado.return_value = _estado(temp=27.0, umidade=45.0, lider="ctrl_2")
             return m

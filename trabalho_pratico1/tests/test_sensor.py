@@ -25,20 +25,20 @@ class TestSimuladorAmbiente:
     """TP-01 & TE-01: Deriva contínua em malha fechada e validação de limites."""
 
     def test_tp01_deriva_natural_e_reversao_com_atuadores(self):
-        """Com atuadores OFF, temp sobe e umidade cai; com atuadores ON, inverte até os limites."""
+        """Com atuadores OFF, temp sobe +2.0°C e umidade cai -3.0%; com atuadores ON, inverte."""
         sim = SimuladorAmbiente(temp_inicial=30.0, umidade_inicial=40.0)
 
-        # Atuadores desligados -> temperatura sobe e umidade cai
+        # Atuadores desligados -> temperatura sobe (+2.0) e umidade cai (-3.0)
         temp1, umid1 = sim.proxima_leitura()
-        assert temp1 > 30.0
-        assert umid1 < 40.0
+        assert temp1 == 32.0
+        assert umid1 == 37.0
 
-        # Liga bomba e exaustor -> temperatura cai e umidade sobe
+        # Liga bomba e exaustor -> temperatura cai (-2.5) e umidade sobe (+6.0)
         sim.atualizar_atuador("bomba", True)
         sim.atualizar_atuador("exaustor", True)
         temp2, umid2 = sim.proxima_leitura()
-        assert temp2 < temp1
-        assert umid2 > umid1
+        assert temp2 == 29.5
+        assert umid2 == 43.0
 
     def test_tp01_limites_fisicos_clamping(self):
         """Temperatura fica limitada a [0, 55]°C e umidade a [0, 100]%."""

@@ -3,7 +3,7 @@ sensor.py — Processo Sensor da Estufa em malha fechada contínua.
 
 Publica leituras periódicas de temperatura (°C) e umidade do solo (%) via MQTT
 e assina os tópicos de status da bomba e do exaustor para ajustar as próximas
-leituras de forma contínua e natural.
+leituras de forma contínua e determinística.
 
 Uso:
     python -m estufa.sensor
@@ -12,8 +12,6 @@ Uso:
 
 import argparse
 import json
-import random
-import threading
 import time
 import paho.mqtt.client as mqtt
 from estufa import config
@@ -37,41 +35,28 @@ class SimuladorAmbiente:
         self.umidade = round(float(umidade_inicial), 2)
         self.bomba_ligada = False
         self.exaustor_ligado = False
-        self._lock = threading.Lock()
 
     def atualizar_atuador(self, atuador: str, ligado: bool) -> None:
         """Atualiza o estado conhecido do atuador a partir do feedback MQTT."""
-        with self._lock:
-            if atuador == "bomba":
-                self.bomba_ligada = bool(ligado)
-            elif atuador == "exaustor":
-                self.exaustor_ligado = bool(ligado)
+        if atuador == "bomba":
+            self.bomba_ligada = bool(ligado)
+        elif atuador == "exaustor":
+            self.exaustor_ligado = bool(ligado)
 
     def proxima_leitura(self) -> tuple[float, float]:
-        """Calcula a próxima leitura aplicando aquecimento/resfriamento e irrigação/evaporação."""
-        with self._lock:
-            # Com exaustor desligado a estufa aquece até cruzar 35°C; ligado, resfria até < 15°C
-            delta_temp = (
-                random.uniform(-3.5, -2.2)
-                if self.exaustor_ligado
-                else random.uniform(1.6, 2.6)
-            )
-            # Com bomba desligada o solo seca até < 30%; ligada, umidifica até > 70%
-            delta_umidade = (
-                random.uniform(5.0, 7.5)
-                if self.bomba_ligada
-                else random.uniform(-4.0, -2.5)
-            )
+        """Calcula a próxima leitura com passos fixos (+2.0/-2.5°C e -3.0/+6.0%)."""
+        delta_temp = -2.5 if self.exaustor_ligado else 2.0
+        delta_umidade = 6.0 if self.bomba_ligada else -3.0
 
-            self.temperatura = round(
-                max(TEMP_LIMITE_MIN, min(TEMP_LIMITE_MAX, self.temperatura + delta_temp)),
-                2,
-            )
-            self.umidade = round(
-                max(UMIDADE_LIMITE_MIN, min(UMIDADE_LIMITE_MAX, self.umidade + delta_umidade)),
-                2,
-            )
-            return self.temperatura, self.umidade
+        self.temperatura = round(
+            max(TEMP_LIMITE_MIN, min(TEMP_LIMITE_MAX, self.temperatura + delta_temp)),
+            2,
+        )
+        self.umidade = round(
+            max(UMIDADE_LIMITE_MIN, min(UMIDADE_LIMITE_MAX, self.umidade + delta_umidade)),
+            2,
+        )
+        return self.temperatura, self.umidade
 
 
 # Inscrição MQTT nos tópicos de status com QoS 1 para fechar a malha do simulador

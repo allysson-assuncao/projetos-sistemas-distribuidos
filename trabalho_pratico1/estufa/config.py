@@ -62,6 +62,5 @@ UMIDADE_MIN_PERCENT = 30.0   # Abaixo: liga a bomba de irrigação
 UMIDADE_MAX_PERCENT = 70.0   # Acima: desliga a bomba de irrigação
 
 # Timeouts explícitos de RPC e intervalo de heartbeat para detecção rápida de queda
-TIMEOUT_RPC_SEGUNDOS = 1.5
+TIMEOUT_RPC_SEGUNDOS = 0.6
 INTERVALO_HEARTBEAT_SEGUNDOS = 2.0
-QUORUM_MINIMO = 2

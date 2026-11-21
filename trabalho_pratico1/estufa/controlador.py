@@ -14,7 +14,6 @@ Uso simplificado:
 """
 
 import argparse
-import concurrent.futures
 from datetime import datetime, timezone
 import json
 import os
@@ -113,20 +112,12 @@ class Controlador:
         timeout_rpc: float = config.TIMEOUT_RPC_SEGUNDOS,
         heartbeat_interval: float = config.INTERVALO_HEARTBEAT_SEGUNDOS,
     ):
-        try:
-            cfg = config.obter_config_controlador(ctrl_id)
-            self.ctrl_id = cfg["id"]
-            self.rank = int(cfg["rank"])
-            self.host = host or cfg["host"]
-            self.port = int(port if port is not None else cfg["port"])
-            self.data_file = data_file if data_file is not None else cfg["data_file"]
-        except ValueError:
-            self.ctrl_id = str(ctrl_id)
-            digitos = "".join(ch for ch in self.ctrl_id if ch.isdigit())
-            self.rank = int(digitos) if digitos else 1
-            self.host = host
-            self.port = int(port if port is not None else 8000 + self.rank)
-            self.data_file = data_file if data_file is not None else f"data_{self.ctrl_id}.json"
+        cfg = config.obter_config_controlador(ctrl_id)
+        self.ctrl_id = cfg["id"]
+        self.rank = int(cfg["rank"])
+        self.host = host or cfg["host"]
+        self.port = int(port if port is not None else cfg["port"])
+        self.data_file = data_file if data_file is not None else cfg["data_file"]
 
         self.byzantino = bool(byzantino)
         self._timeout_rpc = float(timeout_rpc)
@@ -155,9 +146,26 @@ class Controlador:
         with self._lock:
             return self.lider_id == self.ctrl_id
 
-    def _criar_proxy_par(self, par: dict) -> xmlrpc.client.ServerProxy:
+    def _criar_proxy_par(self, par: dict, timeout: float | None = None) -> xmlrpc.client.ServerProxy:
         """Cria um proxy XML-RPC com timeout explícito para um controlador par."""
-        return criar_proxy_rpc(par["host"], int(par["port"]), timeout=self._timeout_rpc)
+        return criar_proxy_rpc(
+            par["host"],
+            int(par["port"]),
+            timeout=timeout if timeout is not None else self._timeout_rpc,
+        )
+
+    def _gerar_estado_byzantino(self, incluir_timestamp: bool = False) -> dict:
+        """Gera um estado adulterado para simular controlador comprometido (--byzantino)."""
+        dados = {
+            "temperatura": 999.9,
+            "umidade": -50.0,
+            "bomba_ligada": not bool(self._estado.get("bomba_ligada", False)),
+            "exaustor_ligado": not bool(self._estado.get("exaustor_ligado", False)),
+            "lider_id": self.lider_id,
+        }
+        if incluir_timestamp:
+            dados["ultima_atualizacao"] = datetime.now(timezone.utc).isoformat()
+        return dados
 
     def _carregar_estado(self) -> dict:
         """Lê o estado persistido em disco ou retorna o estado inicial canônico."""
@@ -170,37 +178,20 @@ class Controlador:
                     for chave in CAMPOS_PERSISTIDOS:
                         if chave in dados:
                             estado[chave] = dados[chave]
-                    if "umidade" not in dados and "umidade_solo" in dados:
-                        estado["umidade"] = dados["umidade_solo"]
                     return estado
             except (json.JSONDecodeError, OSError):
                 pass
         return dict(ESTADO_INICIAL)
 
     def _salvar_estado(self) -> None:
-        """Persiste de forma atômica o estado oficial no arquivo JSON local."""
+        """Persiste o estado oficial no arquivo JSON local do controlador."""
         with self._lock:
             dados = {chave: self._estado.get(chave) for chave in CAMPOS_PERSISTIDOS}
-        tmp_file = f"{self.data_file}.{threading.get_ident()}.tmp"
-        try:
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(dados, f, indent=2, ensure_ascii=False)
-            for tentativa in range(5):
-                try:
-                    os.replace(tmp_file, self.data_file)
-                    return
-                except PermissionError:
-                    if tentativa == 4:
-                        raise
-                    time.sleep(0.02)
-        except OSError as e:
-            print(f"[{self.ctrl_id}] Erro ao salvar estado: {e}")
-        finally:
-            if os.path.exists(tmp_file):
-                try:
-                    os.remove(tmp_file)
-                except OSError:
-                    pass
+            try:
+                with open(self.data_file, "w", encoding="utf-8") as f:
+                    json.dump(dados, f, indent=2, ensure_ascii=False)
+            except OSError as e:
+                print(f"[{self.ctrl_id}] Erro ao salvar estado: {e}")
 
     # ------------------------------------------------------------------
     # Métodos RPC de Eleição (Algoritmo Valentão / Bully) e Heartbeat
@@ -227,20 +218,13 @@ class Controlador:
 
         return {"aceito": False, "id": self.ctrl_id, "rank": self.rank}
 
-    def _obter_rank_id(self, ctrl_id: str) -> int:
-        try:
-            return int(config.obter_config_controlador(ctrl_id)["rank"])
-        except ValueError:
-            digs = "".join(ch for ch in str(ctrl_id) if ch.isdigit())
-            return int(digs) if digs else 0
-
     def anunciar_lider(self, novo_lider_id: str) -> dict:
         """Registra o novo líder eleito pelo algoritmo Bully."""
         if not isinstance(novo_lider_id, str) or not novo_lider_id.strip():
             raise ValueError("novo_lider_id inválido.")
 
         lider_limpo = novo_lider_id.strip()
-        if self._obter_rank_id(lider_limpo) < self.rank:
+        if int(config.obter_config_controlador(lider_limpo)["rank"]) < self.rank:
             # Nó de rank superior nunca aceita líder de rank inferior; dispara nova eleição Bully
             threading.Thread(target=self.realizar_eleicao, daemon=True).start()
             return {"ok": False, "id": self.ctrl_id, "lider_id": self.ctrl_id}
@@ -267,32 +251,14 @@ class Controlador:
             )
 
             superior_ativo = None
-            if superiores:
-                executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(superiores))
-                futuros = {
-                    executor.submit(
-                        lambda par: self._criar_proxy_par(par).iniciar_eleicao(self.rank),
-                        p,
-                    ): p
-                    for p in superiores
-                }
-                respondentes = []
+            for par in superiores:
                 try:
-                    for fut in concurrent.futures.as_completed(futuros, timeout=self._timeout_rpc + 0.2):
-                        par = futuros[fut]
-                        try:
-                            resp = fut.result(timeout=0.1)
-                            if isinstance(resp, dict) and resp.get("aceito"):
-                                respondentes.append(par)
-                        except Exception:
-                            continue
-                except (concurrent.futures.TimeoutError, TimeoutError):
-                    pass
-                finally:
-                    executor.shutdown(wait=False, cancel_futures=True)
-
-                if respondentes:
-                    superior_ativo = max(respondentes, key=lambda p: int(p["rank"]))
+                    resp = self._criar_proxy_par(par).iniciar_eleicao(self.rank)
+                    if isinstance(resp, dict) and resp.get("aceito"):
+                        superior_ativo = par
+                        break
+                except Exception:
+                    continue
 
             if superior_ativo is None:
                 with self._lock:
@@ -303,8 +269,8 @@ class Controlador:
 
                 print(f"[ELEICAO] [{self.ctrl_id}] Assumiu a LIDERANÇA (rank={self.rank}).")
 
-                if pares:
-                    def _notificar_par(par: dict) -> None:
+                for par in pares:
+                    try:
                         proxy = self._criar_proxy_par(par)
                         proxy.anunciar_lider(self.ctrl_id)
                         if (
@@ -312,13 +278,8 @@ class Controlador:
                             and estado_para_replicar.get("ultima_atualizacao") is not None
                         ):
                             proxy.commit_estado(estado_para_replicar)
-
-                    executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(pares))
-                    futuros_anuncio = [executor.submit(_notificar_par, par) for par in pares]
-                    try:
-                        concurrent.futures.wait(futuros_anuncio, timeout=self._timeout_rpc + 0.3)
-                    finally:
-                        executor.shutdown(wait=False, cancel_futures=True)
+                    except Exception:
+                        continue
                 return self.ctrl_id
 
             # Aguarda brevemente o anúncio do nó superior; se ainda não chegou, consulta o superior
@@ -399,68 +360,27 @@ class Controlador:
         with self._lock:
             pares = list(self._pares)
 
-        respostas = []
-        lider_descoberto = None
-
-        if pares:
-            executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(pares))
-            futuros = {
-                executor.submit(lambda p: self._criar_proxy_par(p).obter_estado(), par): par
-                for par in pares
-            }
+        estados_validos = []
+        for par in pares:
             try:
-                for fut in concurrent.futures.as_completed(futuros, timeout=self._timeout_rpc + 0.2):
-                    par = futuros[fut]
-                    try:
-                        estado = fut.result(timeout=0.1)
-                        if isinstance(estado, dict):
-                            respostas.append((par["id"], estado))
-                            if estado.get("lider_id"):
-                                lider_descoberto = estado["lider_id"]
-                    except Exception:
-                        continue
-            except (concurrent.futures.TimeoutError, TimeoutError):
-                pass
-            finally:
-                executor.shutdown(wait=False, cancel_futures=True)
+                estado = self._criar_proxy_par(par).obter_estado()
+                if not isinstance(estado, dict):
+                    continue
+                if estado.get("ultima_atualizacao") is None:
+                    continue
+                if _validar_limites_sensor(estado.get("temperatura"), estado.get("umidade")):
+                    estados_validos.append(estado)
+            except Exception:
+                continue
 
-        if not respostas:
-            print(f"[SYNC] [{self.ctrl_id}] Nenhum par ativo no momento; mantendo estado local.")
+        if not estados_validos:
+            print(f"[SYNC] [{self.ctrl_id}] Nenhum par inicializado no momento; mantendo estado local.")
             return False
 
-        inicializados = [
-            (pid, est)
-            for pid, est in respostas
-            if not (
-                est.get("ultima_atualizacao") is None
-                and est.get("temperatura") is None
-                and est.get("umidade") is None
-            )
-        ]
-        candidatos = inicializados if inicializados else respostas
-
         try:
-            oficial = ClusterMiddleware.calcular_consenso([est for _, est in candidatos])
+            oficial = ClusterMiddleware.calcular_consenso(estados_validos)
         except ErroQuorum:
-            # Em empate (ex: reconexão com estado desatualizado ou 1 bizantino), prioriza líder ativo e timestamp mais recente
-            validos = [
-                (pid, est)
-                for pid, est in candidatos
-                if _validar_limites_sensor(est.get("temperatura"), est.get("umidade"))
-            ]
-            if not validos:
-                print(f"[SYNC] [{self.ctrl_id}] Divergência entre pares na sincronização; aguardando consenso.")
-                return False
-            _, oficial = max(
-                validos,
-                key=lambda item: (
-                    1 if item[0] == item[1].get("lider_id") else 0,
-                    str(item[1].get("ultima_atualizacao") or ""),
-                ),
-            )
-
-        if not _validar_limites_sensor(oficial.get("temperatura"), oficial.get("umidade")):
-            print(f"[SYNC] [{self.ctrl_id}] Estado descartado por limites inválidos.")
+            print(f"[SYNC] [{self.ctrl_id}] Divergência entre pares na sincronização; aguardando consenso.")
             return False
 
         with self._lock:
@@ -493,13 +413,7 @@ class Controlador:
         """
         with self._lock:
             if self.byzantino:
-                return {
-                    "temperatura": 999.9,
-                    "umidade": -50.0,
-                    "bomba_ligada": not bool(self._estado.get("bomba_ligada", False)),
-                    "exaustor_ligado": not bool(self._estado.get("exaustor_ligado", False)),
-                    "lider_id": self.lider_id,
-                }
+                return self._gerar_estado_byzantino(incluir_timestamp=False)
 
             temp = self._estado.get("temperatura")
             umidade = self._estado.get("umidade")
@@ -509,13 +423,11 @@ class Controlador:
 
         if isinstance(proposta, dict):
             if proposta.get("manual"):
-                nova_bomba = bool(proposta.get("bomba_ligada", bomba_atual))
-                novo_exaustor = bool(proposta.get("exaustor_ligado", exaustor_atual))
                 return {
                     "temperatura": temp,
                     "umidade": umidade,
-                    "bomba_ligada": nova_bomba,
-                    "exaustor_ligado": novo_exaustor,
+                    "bomba_ligada": bool(proposta.get("bomba_ligada", bomba_atual)),
+                    "exaustor_ligado": bool(proposta.get("exaustor_ligado", exaustor_atual)),
                     "lider_id": lider_atual,
                 }
 
@@ -574,7 +486,7 @@ class Controlador:
         if self._mqtt_client:
             self._mqtt_client.publish(topico, payload, qos=1)
 
-    # Coordenação do consenso: coleta votos em paralelo, resolve quórum e replica commit_estado
+    # Coordenação do consenso: coleta votos dos pares, resolve quórum e replica commit_estado
     def _coordenar_consenso_e_persistir(
         self,
         proposta: dict,
@@ -582,40 +494,25 @@ class Controlador:
         forcar_publicacao: tuple[str, bool] | None = None,
     ) -> dict:
         """
-        Executado pelo Líder: coleta votos dos pares ativos em paralelo, resolve o quórum
+        Executado pelo Líder: coleta votos dos pares ativos, resolve o quórum
         dinâmico, faz commit síncrono do estado oficial em todas as réplicas e publica no MQTT.
         """
         with self._lock:
             estado_anterior = dict(self._estado)
             pares = list(self._pares)
 
-        # Coleta votos em paralelo fora de self._lock para evitar contenção e atraso em cascata
+        # Coleta votos fora de self._lock para evitar contenção durante RPCs
         votos = [self.coletar_voto_estado(proposta)]
         pares_alcancaveis = []
 
-        if pares:
-            executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(pares))
-            futuros = {
-                executor.submit(
-                    lambda p: self._criar_proxy_par(p).coletar_voto_estado(proposta),
-                    par,
-                ): par
-                for par in pares
-            }
+        for par in pares:
             try:
-                for fut in concurrent.futures.as_completed(futuros, timeout=self._timeout_rpc + 0.2):
-                    par = futuros[fut]
-                    try:
-                        voto = fut.result(timeout=0.1)
-                        if isinstance(voto, dict):
-                            votos.append(voto)
-                            pares_alcancaveis.append(par)
-                    except Exception:
-                        continue
-            except (concurrent.futures.TimeoutError, TimeoutError):
-                pass
-            finally:
-                executor.shutdown(wait=False, cancel_futures=True)
+                voto = self._criar_proxy_par(par).coletar_voto_estado(proposta)
+                if isinstance(voto, dict):
+                    votos.append(voto)
+                    pares_alcancaveis.append(par)
+            except Exception:
+                continue
 
         if len(votos) == 1:
             print(f"[QUORUM DEGRADADO: 1/3 ativos] [{self.ctrl_id}] Operando em modo isolado.")
@@ -626,26 +523,11 @@ class Controlador:
 
         self.commit_estado(estado_oficial)
 
-        if pares_alcancaveis:
-            executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(pares_alcancaveis))
-            futuros_commit = {
-                executor.submit(
-                    lambda p: self._criar_proxy_par(p).commit_estado(estado_oficial),
-                    par,
-                ): par
-                for par in pares_alcancaveis
-            }
+        for par in pares_alcancaveis:
             try:
-                for fut in concurrent.futures.as_completed(futuros_commit, timeout=self._timeout_rpc + 0.2):
-                    par = futuros_commit[fut]
-                    try:
-                        fut.result(timeout=0.1)
-                    except Exception as e:
-                        print(f"[REPLICA] [{self.ctrl_id}] Falha ao enviar commit para {par['id']}: {e}")
-            except (concurrent.futures.TimeoutError, TimeoutError):
-                pass
-            finally:
-                executor.shutdown(wait=False, cancel_futures=True)
+                self._criar_proxy_par(par).commit_estado(estado_oficial)
+            except Exception as e:
+                print(f"[REPLICA] [{self.ctrl_id}] Falha ao enviar commit para {par['id']}: {e}")
 
         if publicar_atuacao and self.eh_lider():
             if forcar_publicacao is not None:
@@ -704,11 +586,9 @@ class Controlador:
             }
             if msg.topic == config.TOPIC_TEMPERATURA:
                 proposta["temperatura"] = valor
-                self._estado["temperatura"] = valor
                 print(f"[{self.ctrl_id}] Temperatura recebida: {valor:.2f}°C")
             elif msg.topic == config.TOPIC_UMIDADE_SOLO:
                 proposta["umidade"] = valor
-                self._estado["umidade"] = valor
                 print(f"[{self.ctrl_id}] Umidade recebida: {valor:.2f}%")
             else:
                 return
@@ -720,6 +600,7 @@ class Controlador:
             self.realizar_eleicao()
             sou_lider = self.eh_lider()
 
+        # Apenas o Líder inicia o consenso; seguidores aguardam o commit_estado oficial
         if sou_lider:
             try:
                 self._coordenar_consenso_e_persistir(proposta, publicar_atuacao=True)
@@ -734,15 +615,14 @@ class Controlador:
         """Retorna o estado local da réplica (ou dados corrompidos em modo bizantino)."""
         with self._lock:
             if self.byzantino:
-                return {
-                    "temperatura": 999.9,
-                    "umidade": -50.0,
-                    "bomba_ligada": not bool(self._estado.get("bomba_ligada", False)),
-                    "exaustor_ligado": not bool(self._estado.get("exaustor_ligado", False)),
-                    "ultima_atualizacao": datetime.now(timezone.utc).isoformat(),
-                    "lider_id": self.lider_id,
-                }
+                return self._gerar_estado_byzantino(incluir_timestamp=True)
             return dict(self._estado)
+
+    def _encaminhar_para_lider(self, par_lider: dict, alvo: str, ligar: bool) -> dict:
+        """Encaminha um comando manual de atuador recebido por um seguidor até o Líder."""
+        proxy = self._criar_proxy_par(par_lider, timeout=self._timeout_rpc * 2.5)
+        metodo = "comandar_bomba" if alvo == "bomba" else "comandar_exaustor"
+        return getattr(proxy, metodo)(ligar)
 
     def _executar_comando_atuador(self, alvo: str, ligar: bool) -> dict:
         """
@@ -760,13 +640,7 @@ class Controlador:
             par_lider = self._encontrar_par(lider_atual)
             if par_lider is not None:
                 try:
-                    proxy = criar_proxy_rpc(
-                        par_lider["host"],
-                        int(par_lider["port"]),
-                        timeout=self._timeout_rpc * 2.5,
-                    )
-                    metodo = "comandar_bomba" if alvo == "bomba" else "comandar_exaustor"
-                    return getattr(proxy, metodo)(ligar)
+                    return self._encaminhar_para_lider(par_lider, alvo, ligar)
                 except (
                     ConnectionRefusedError,
                     TimeoutError,
@@ -781,13 +655,7 @@ class Controlador:
             if novo_lider != self.ctrl_id:
                 par_novo = self._encontrar_par(novo_lider)
                 if par_novo is not None:
-                    proxy = criar_proxy_rpc(
-                        par_novo["host"],
-                        int(par_novo["port"]),
-                        timeout=self._timeout_rpc * 2.5,
-                    )
-                    metodo = "comandar_bomba" if alvo == "bomba" else "comandar_exaustor"
-                    return getattr(proxy, metodo)(ligar)
+                    return self._encaminhar_para_lider(par_novo, alvo, ligar)
 
         with self._lock:
             proposta = {

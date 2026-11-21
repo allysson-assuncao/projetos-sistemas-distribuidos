@@ -24,7 +24,7 @@ def exibir_estado(estado: dict) -> None:
     print("=" * 52)
 
     temp = estado.get("temperatura")
-    umidade = estado.get("umidade", estado.get("umidade_solo"))
+    umidade = estado.get("umidade")
     bomba = estado.get("bomba_ligada")
     exaustor = estado.get("exaustor_ligado")
     lider = estado.get("lider_id") or "N/A"
