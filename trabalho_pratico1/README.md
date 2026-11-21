@@ -65,7 +65,7 @@ flowchart TD
 |---|---|---|
 | **Camada Cliente → Controladores** (`Invocação de Métodos`) | XML-RPC sobre HTTP (`127.0.0.1:8001..8003`) | O `ClusterMiddleware` embarcado no cliente consulta todos os nós ativos (`obter_estado` com consenso), roteia comandos (`comandar_bomba`, `comandar_exaustor`) ao líder atual e faz failover automático se um controlador cair. |
 | **Controlador ↔ Controlador** (`Sincronização, Eleição e Tolerância a Falhas`) | XML-RPC P2P (`ping`, `iniciar_eleicao`, `anunciar_lider`, `coletar_voto_estado`, `commit_estado`) | Comunicação direta entre os 3 controladores para monitorar o líder por heartbeat, eleger novo líder (Bully), validar votos antes de gravar e sincronizar réplicas que retornarem após queda. |
-| **Controlador ↔ Armazenamento** (`Replicação`) | Disco local JSON atômico (`data_ctrl_1..3.json`) | Após apurar o quórum, o líder envia `commit_estado` síncrono para todas as réplicas ativas gravarem exatamente os mesmos dados oficiais. |
+| **Controlador ↔ Armazenamento** (`Replicação`) | Disco local JSON (`data_ctrl_1..3.json`) | Após apurar o quórum, o líder envia `commit_estado` síncrono para todas as réplicas ativas gravarem exatamente os mesmos dados oficiais. |
 | **Sensor → Broker → Controladores** (`Telemetria`) | MQTT v3.1.1 (`QoS 1`, `:1883`) | `estufa.sensor` publica temperatura e umidade continuamente; os 3 controladores assinam ambos os tópicos e participam da votação iniciada pelo líder. |
 | **Líder → Broker → Atuador → Sensor** (`Malha Fechada`) | MQTT v3.1.1 (`QoS 1`, `:1883`) | Somente o Líder publica comandos em `estufa/atuadores/*` após consenso. O Atuador executa e publica confirmação em `estufa/status/*`, invertendo a curva física gerada pelo Sensor. |
 

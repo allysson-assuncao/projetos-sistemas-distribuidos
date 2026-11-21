@@ -40,9 +40,9 @@ A arquitetura é estruturada em três camadas integradas:
 | Componente | Módulo | Porta | Responsabilidade |
 |---|---|---|---|
 | **Broker MQTT** | `estufa/broker_local.py` | `127.0.0.1:1883` | Broker MQTT v3.1.1 local (QoS 0 e 1) |
-| **Controladores (×3)** | `estufa/controlador.py` | `8001`, `8002`, `8003` | Eleição Bully, consenso P2P, commit JSON atômico e atuação do Líder |
+| **Controladores (×3)** | `estufa/controlador.py` | `8001`, `8002`, `8003` | Eleição Bully, consenso P2P, commit JSON replicado e atuação do Líder |
 | **Camada Middleware** | `estufa/middleware.py` | embarcado | Proxy RPC com timeout explícito, failover do cliente e cálculo de quórum |
-| **Sensor Contínuo** | `estufa/sensor.py` | — | Simulação em malha fechada reativa ao status dos atuadores |
+| **Sensor Contínuo** | `estufa/sensor.py` | — | Simulação determinística em malha fechada (`+2.0/-2.5°C` e `-3.0/+6.0%`) reativa aos atuadores |
 | **Atuador** | `estufa/atuador.py` | — | Acionamento de bomba/exaustor e publicação de status QoS 1 |
 | **Cliente CLI** | `estufa/cliente.py` | — | Interface interativa de consulta e comando direto ao cluster |
 
@@ -52,7 +52,7 @@ A arquitetura é estruturada em três camadas integradas:
 
 Cada controlador possui um identificador e prioridade numérica (`ctrl_1: rank=1`, `ctrl_2: rank=2`, `ctrl_3: rank=3`):
 
-1. **Eleição no boot e sob falha (`realizar_eleicao`):** O controlador consulta em paralelo todos os pares com `rank` superior via `iniciar_eleicao(rank)`. Se nenhum responder, assume a liderança (`lider_id = self.ctrl_id`), persiste o estado e anuncia `anunciar_lider` + `commit_estado` aos demais nós.
+1. **Eleição no boot e sob falha (`realizar_eleicao`):** O controlador consulta sequencialmente os pares com `rank` superior via `iniciar_eleicao(rank)`. Se nenhum responder, assume a liderança (`lider_id = self.ctrl_id`), persiste o estado e anuncia `anunciar_lider` + `commit_estado` aos demais nós.
 2. **Guarda de Rank (`anunciar_lider`):** Se um nó de rank inferior tentar se anunciar enquanto um nó superior está ativo, o nó superior recusa e inicia nova eleição Bully.
 3. **Detecção de falha (`_loop_heartbeat`):** A cada `2.0s` (`INTERVALO_HEARTBEAT_SEGUNDOS`), os seguidores verificam o líder via `ping()`. Caso o líder caia, uma nova eleição promove automaticamente o próximo nó vivo de maior rank (`ctrl_3 -> ctrl_2 -> ctrl_1`).
 4. **Transparência no Cliente (`ClusterMiddleware._chamar_com_failover`):** Se o nó contatado pelo cliente cair ou sofrer timeout, o cliente tenta o próximo controlador da lista automaticamente; se um seguidor receber o comando, encaminha-o ao líder atual.
@@ -63,13 +63,13 @@ Cada controlador possui um identificador e prioridade numérica (`ctrl_1: rank=1
 
 Para impedir divergência entre `data_ctrl_1.json`, `data_ctrl_2.json` e `data_ctrl_3.json`:
 
-1. **Validação antes da persistência:** Ao receber leitura MQTT de sensor ou comando manual RPC, os controladores **não** gravam em disco de forma isolada. O Líder coleta os votos de todas as réplicas ativas em paralelo (`coletar_voto_estado`), onde cada nó avalia independentemente as regras de histerese.
+1. **Validação antes da persistência:** Ao receber leitura MQTT de sensor ou comando manual RPC, os controladores **não** alteram nem gravam o estado em disco de forma isolada. O Líder coleta os votos das réplicas ativas (`coletar_voto_estado`), onde cada nó avalia independentemente as regras de histerese.
 2. **Quórum dinâmico sobre nós ativos (`ClusterMiddleware.calcular_consenso`):**
    - **3 ativos:** exige maioria ($\ge 2/3$), mascarando até $f = 1$ controlador em falha bizantina (`--byzantino`).
    - **2 ativos:** exige concordância ($2/2$); qualquer divergência (`1 vs 1`) dispara `ErroQuorum` e aborta a gravação.
    - **1 ativo:** modo degradado ($1/1$), mantendo a disponibilidade da estufa mesmo após duas quedas consecutivas.
-3. **Commit atômico e publicação única:** Definido o estado oficial, o Líder executa `commit_estado` síncrono em si e nos seguidores alcançáveis (usando escrita em arquivo temporário + `os.replace`) e **somente o Líder** publica o comando no tópico MQTT do atuador.
-4. **Ressincronização ao reconectar (`_sincronizar_com_cluster`):** Ao subir novamente após queda, o controlador consulta os pares ativos, atualiza seu banco JSON com o estado oficial do cluster (priorizando consenso ou o líder ativo) e só então retoma sua posição na eleição Bully.
+3. **Commit síncrono e publicação única:** Definido o estado oficial, o Líder executa `commit_estado` síncrono em si e nos seguidores alcançáveis (persistência JSON protegida por `RLock`) e **somente o Líder** publica o comando no tópico MQTT do atuador.
+4. **Ressincronização ao reconectar (`_sincronizar_com_cluster`):** Ao subir novamente após queda, o controlador consulta os pares ativos, valida o estado oficial via `ClusterMiddleware.calcular_consenso()`, atualiza seu banco JSON local e só então retoma sua posição na eleição Bully.
 
 ---
 
@@ -87,7 +87,7 @@ Ao iniciar um controlador com `python -m estufa.controlador 2 --byzantino`, ele 
 | `MAPA_CONTROLADORES` | `1..3 -> 8001..8003` | Portas XML-RPC, ranks Bully e arquivos JSON replicados |
 | `TEMP_MAX_CELSIUS` / `TEMP_MIN_CELSIUS` | `35.0 °C` / `15.0 °C` | Faixa de histerese do exaustor |
 | `UMIDADE_MIN_PERCENT` / `UMIDADE_MAX_PERCENT` | `30.0 %` / `70.0 %` | Faixa de histerese da bomba de irrigação |
-| `TIMEOUT_RPC_SEGUNDOS` | `1.5 s` | Timeout de socket XML-RPC entre pares (`3.75s` no cliente) |
+| `TIMEOUT_RPC_SEGUNDOS` | `0.6 s` | Timeout de socket XML-RPC entre pares (`1.5s` no cliente) |
 | `INTERVALO_HEARTBEAT_SEGUNDOS` | `2.0 s` | Intervalo de verificação do líder pelos seguidores |
 
 ---
