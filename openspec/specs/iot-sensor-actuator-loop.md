@@ -1,7 +1,7 @@
 ---
 id: "iot-sensor-actuator-loop"
 title: "Simplified Closed-Loop IoT Sensor & Actuator"
-version: "1.0.0"
+version: "1.1.0"
 status: "active"
 owners:
   - "@anybo"
@@ -21,11 +21,11 @@ resources: []
 
 ## Context & Objectives
 
-Defines the simplified MQTT IoT layer of `trabalho_pratico1`: a single continuous closed-loop environment simulator (`estufa/sensor.py`) that reacts dynamically to actuator state feedback without rigid static profiles, paired with a deduplication-free actuator (`estufa/atuador.py`) receiving single-source commands from the elected cluster Leader.
+Defines the simplified MQTT IoT layer of `trabalho_pratico1`: a single continuous deterministic closed-loop environment simulator (`estufa/sensor.py`) that reacts dynamically to actuator state feedback without rigid static profiles, paired with a deduplication-free actuator (`estufa/atuador.py`) receiving single-source commands from the elected cluster Leader.
 
 ## Functional Requirements
 
-- **[RF-01]** `estufa/sensor.py` MUST publish temperature (`estufa/sensores/temperatura`) and soil humidity (`estufa/sensores/umidade_solo`) continuously with QoS 1, drifting upward/downward based on `estufa/status/bomba` and `estufa/status/exaustor` feedback so thresholds (`15°C..35°C`, `30%..70%`) are naturally traversed without switching profiles.
+- **[RF-01]** `estufa/sensor.py` MUST publish temperature (`estufa/sensores/temperatura`) and soil humidity (`estufa/sensores/umidade_solo`) continuously with QoS 1, drifting deterministically (`+2.0°C` / `-2.5°C` for temperature, `-3.0%` / `+6.0%` for soil moisture, clamped to `[0.0, 55.0]`°C and `[0.0, 100.0]`%) based on `estufa/status/bomba` and `estufa/status/exaustor` feedback so thresholds (`15°C..35°C`, `30%..70%`) are naturally traversed without switching profiles.
 - **[RF-02]** `estufa/sensor.py` MUST accept optional CLI overrides `--temp` (`-50..100`), `--umidade` (`0..100`), and `--intervalo` (`> 0.05`s) for live demonstration scenarios.
 - **[RF-03]** `estufa/atuador.py` MUST subscribe to `estufa/atuadores/bomba` and `estufa/atuadores/exaustor` with QoS 1, execute `"ligar"` / `"desligar"` commands via a unified handler without LRU deduplication caches, and publish confirmation payloads (`{atuador, ligado, timestamp}`) to `estufa/status/bomba` and `estufa/status/exaustor`.
 
@@ -43,3 +43,4 @@ Defines the simplified MQTT IoT layer of `trabalho_pratico1`: a single continuou
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-11-17 | @anybo | Initial specification for simplified closed-loop sensor and actuator |
+| 1.1.0 | 2026-11-21 | @anybo | Replaced random drift and internal lock in `SimuladorAmbiente` with deterministic fixed steps (`simplify-tp1-for-defense`) |

@@ -1,7 +1,7 @@
 # Proposal: Simplify TP1 for Oral Defense
 
 > **Change ID:** `simplify-tp1-for-defense`
-> **Status:** draft
+> **Status:** approved
 > **Author:** @anybo
 > **Created:** 2026-11-21
 > **Last Updated:** 2026-11-21
@@ -61,11 +61,11 @@ None. JSON state files (`data_ctrl_1..3.json`) preserve the exact schema (`tempe
 
 ## Acceptance Criteria
 
-- [ ] **Given** a running 3-controller cluster (`ctrl_1..3`) with `broker_local`, **When** `sensor.py` publishes readings and `atuador.py` confirms actuation, **Then** `sensor.py` advances deterministically (`+2.0°C`/`-2.5°C`, `-3.0%`/`+6.0%`) and all 3 `data_ctrl_*.json` files persist identical state exclusively via consensus + `commit_estado` without pre-consensus follower mutation.
-- [ ] **Given** `ctrl_3` (leader) is terminated while `ctrl_1` and `ctrl_2` remain active, **When** heartbeat detects the failure or a client invokes `ClusterMiddleware`, **Then** `ctrl_2` wins Bully election via sequential peer RPC calls within `< 2s` and client commands succeed transparently via failover.
-- [ ] **Given** `ctrl_3` restarts after state updates occurred during its downtime, **When** `_sincronizar_com_cluster()` executes before election, **Then** `ctrl_3` queries active peers sequentially, computes consensus via `ClusterMiddleware.calcular_consenso()`, and persists the synchronized state to `data_ctrl_3.json`.
-- [ ] **Given** one controller runs with `--byzantino` alongside two honest controllers, **When** a consensus round runs, **Then** `calcular_consenso()` masks the corrupted vote (`2/3` majority) and prevents state corruption; when only 1 honest and 1 `--byzantino` controller remain (`1 vs 1`), `ErroQuorum` is raised and persistence/actuation is blocked.
-- [ ] **Given** all code changes are complete, **When** `pytest trabalho_pratico1/tests -v` and `scripts/validate_e2e.py` are executed, **Then** 100% of unit tests and all 6 E2E stages pass, and all line numbers in `revisao_defesa_tp1.md`, `roteiro_apresentacao.md`, and `trabalho_pratico1_codigo_completo.txt` match the refactored source files.
+- [x] **Given** a running 3-controller cluster (`ctrl_1..3`) with `broker_local`, **When** `sensor.py` publishes readings and `atuador.py` confirms actuation, **Then** `sensor.py` advances deterministically (`+2.0°C`/`-2.5°C`, `-3.0%`/`+6.0%`) and all 3 `data_ctrl_*.json` files persist identical state exclusively via consensus + `commit_estado` without pre-consensus follower mutation.
+- [x] **Given** `ctrl_3` (leader) is terminated while `ctrl_1` and `ctrl_2` remain active, **When** heartbeat detects the failure or a client invokes `ClusterMiddleware`, **Then** `ctrl_2` wins Bully election via sequential peer RPC calls within `< 2s` and client commands succeed transparently via failover.
+- [x] **Given** `ctrl_3` restarts after state updates occurred during its downtime, **When** `_sincronizar_com_cluster()` executes before election, **Then** `ctrl_3` queries active peers sequentially, computes consensus via `ClusterMiddleware.calcular_consenso()`, and persists the synchronized state to `data_ctrl_3.json`.
+- [x] **Given** one controller runs with `--byzantino` alongside two honest controllers, **When** a consensus round runs, **Then** `calcular_consenso()` masks the corrupted vote (`2/3` majority) and prevents state corruption; when only 1 honest and 1 `--byzantino` controller remain (`1 vs 1`), `ErroQuorum` is raised and persistence/actuation is blocked.
+- [x] **Given** all code changes are complete, **When** `pytest trabalho_pratico1/tests -v` and `scripts/validate_e2e.py` are executed, **Then** 100% of unit tests and all 6 E2E stages pass, and all line numbers in `revisao_defesa_tp1.md`, `roteiro_apresentacao.md`, and `trabalho_pratico1_codigo_completo.txt` match the refactored source files.
 
 ## Defensive Security & Validation Considerations
 
