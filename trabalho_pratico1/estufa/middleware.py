@@ -18,7 +18,6 @@ class ErroQuorum(Exception):
     """Exceção lançada quando não há consenso ou controladores ativos suficientes."""
 
 
-# Transporte XML-RPC com timeout explícito para evitar travamento TCP longo no Windows
 class _TimeoutTransport(xmlrpc.client.Transport):
     """Transporte XML-RPC com timeout explícito de socket para evitar travamentos no Windows."""
 
