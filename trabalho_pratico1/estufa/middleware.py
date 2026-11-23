@@ -138,6 +138,13 @@ class ClusterMiddleware:
                 "ERRO_QUORUM: Conflito entre os 2 controladores ativos (sem desempate)."
             )
 
+        if len(contagem) > 1:
+            divergentes = [r for r in respostas if cls._normalizar_estado(r) != chave_vencedora]
+            print(
+                f"[CONSENSO] Quórum {votos}/{n_respostas}: "
+                f"{len(divergentes)} voto(s) divergente(s) descartado(s) -> {divergentes}"
+            )
+
         for resposta in respostas:
             if cls._normalizar_estado(resposta) == chave_vencedora:
                 return dict(resposta)
