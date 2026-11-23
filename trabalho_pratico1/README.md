@@ -145,5 +145,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start_all.ps1 -Tem
 ## 6. Documentos de Apoio
 
 - [roteiro_apresentacao.md](./roteiro_apresentacao.md) — Guia enxuto passo a passo para demonstração e injeção de falhas ao vivo.
-- [revisao_defesa_tp1.md](./revisao_defesa_tp1.md) — Explicação técnica detalhada linha a linha do código e perguntas de defesa.
+- [revisao_defesa_tp1.md](./revisao_defesa_tp1.md) — Explicação técnica detalhada linha a linha do código.
 - [relatorio/relatorio.md](./relatorio/relatorio.md) — Relatório técnico completo do trabalho.
